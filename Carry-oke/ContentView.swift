@@ -111,24 +111,29 @@ struct SettingsButton: View {
 // MARK: - Microphone Button (Liquid Glass)
 struct MicrophoneButton: View {
     @State private var isPressed = false
+    @StateObject private var karaokeEngine = KaraokeAudioEngine()
     
     var body: some View {
         Button(action: {
-            // Microphone action
+            Task {
+                await karaokeEngine.toggleKaraoke()
+            }
         }) {
-            Image(systemName: "mic.fill")
+            Image(systemName: karaokeEngine.isRecording ? "mic.fill" : "mic.fill")
                 .font(.system(size: 60, weight: .medium))
-                .foregroundColor(.white)
+                .foregroundColor(karaokeEngine.isRecording ? .red : .white)
                 .frame(width: 200, height: 200)
         }
         .scaleEffect(isPressed ? 0.90 : 1.0)
-        .glassEffect(.regular.tint(Color(hex: "F87060").opacity(0.25)).interactive(), in: .circle)
-        .buttonStyle(.glassProminent).tint(Color(hex: "F87060").opacity(0.25))
+        .glassEffect(.regular.tint(Color(hex: karaokeEngine.isRecording ? "FF4444" : "F87060").opacity(0.25)).interactive(), in: .circle)
         .onLongPressGesture(minimumDuration: 0, maximumDistance: .infinity, pressing: { pressing in
             withAnimation(.easeInOut(duration: 0.1)) {
                 isPressed = pressing
             }
         }, perform: {})
+        .task {
+            await karaokeEngine.requestMicrophonePermission()
+        }
     }
 }
 
@@ -199,6 +204,130 @@ extension Color {
     }
 }
 
+// MARK: - Karaoke Audio Engine
+@MainActor
+class KaraokeAudioEngine: ObservableObject {
+    @Published var isRecording = false
+    @Published var hasPermission = false
+    
+    private let audioEngine = AVAudioEngine()
+    private let playerNode = AVAudioPlayerNode()
+    private var audioSession = AVAudioSession.sharedInstance()
+    
+    init() {
+        setupAudioEngine()
+    }
+    
+    deinit {
+        // Clean up audio engine directly without calling main actor method
+        if audioEngine.isRunning {
+            audioEngine.stop()
+        }
+        
+        do {
+            try audioSession.setActive(false, options: .notifyOthersOnDeactivation)
+        } catch {
+            print("Failed to deactivate audio session in deinit: \(error)")
+        }
+    }
+    
+    // Request microphone permission
+    func requestMicrophonePermission() async {
+        switch audioSession.recordPermission {
+        case .granted:
+            hasPermission = true
+        case .denied:
+            hasPermission = false
+            print("Microphone permission denied. Please enable in Settings > Privacy & Security > Microphone")
+        case .undetermined:
+            let granted = await withCheckedContinuation { continuation in
+                audioSession.requestRecordPermission { granted in
+                    continuation.resume(returning: granted)
+                }
+            }
+            hasPermission = granted
+        @unknown default:
+            hasPermission = false
+        }
+    }
+    
+    private func setupAudioEngine() {
+        // Setup audio session with comprehensive Bluetooth support
+        do {
+            try audioSession.setCategory(.playAndRecord, 
+                                       mode: .default,
+                                       options: [.defaultToSpeaker, .allowBluetooth, .allowBluetoothA2DP, .allowAirPlay])
+            try audioSession.setActive(true)
+            print("Karaoke audio session setup with Bluetooth support")
+        } catch {
+            print("Failed to setup karaoke audio session: \(error)")
+        }
+        
+        // Get the input node (microphone)
+        let inputNode = audioEngine.inputNode
+        let inputFormat = inputNode.outputFormat(forBus: 0)
+        
+        // Get the main mixer node (output)
+        let mainMixer = audioEngine.mainMixerNode
+        
+        // Connect input directly to output (pass-through)
+        audioEngine.connect(inputNode, to: mainMixer, format: inputFormat)
+    }
+    
+    func toggleKaraoke() async {
+        // Check if we have permission, request it if we don't
+        if !hasPermission {
+            await requestMicrophonePermission()
+            guard hasPermission else {
+                print("Microphone permission denied")
+                return
+            }
+        }
+        
+        if isRecording {
+            stopKaraoke()
+        } else {
+            startKaraoke()
+        }
+    }
+    
+    private func startKaraoke() {
+        guard !audioEngine.isRunning else { return }
+        
+        do {
+            // Activate audio session
+            try audioSession.setActive(true)
+            
+            // Start the audio engine
+            try audioEngine.start()
+            
+            isRecording = true
+            print("Karaoke mode started - audio pass-through active")
+            
+        } catch {
+            print("Failed to start karaoke: \(error)")
+            isRecording = false
+        }
+    }
+    
+    private func stopKaraoke() {
+        guard audioEngine.isRunning else { return }
+        
+        // Stop the audio engine
+        audioEngine.stop()
+        
+        do {
+            // Deactivate audio session
+            try audioSession.setActive(false, options: .notifyOthersOnDeactivation)
+        } catch {
+            print("Failed to deactivate audio session: \(error)")
+        }
+        
+        isRecording = false
+        print("Karaoke mode stopped")
+    }
+}
+
 // MARK: - Audio Device Manager
 @MainActor
 class AudioDeviceManager: ObservableObject {
@@ -215,64 +344,152 @@ class AudioDeviceManager: ObservableObject {
         setupNotifications()
     }
     
+    // Force refresh device lists (useful for debugging)
+    func refreshDevices() async {
+        print("Manual device refresh triggered")
+        
+        // Try to refresh the audio session to detect newly connected devices
+        do {
+            // Temporarily deactivate and reactivate to force route discovery
+            try audioSession.setActive(false, options: [])
+            try await Task.sleep(nanoseconds: 100_000_000) // 0.1 second
+            try audioSession.setActive(true, options: [])
+        } catch {
+            print("Error refreshing audio session: \(error)")
+        }
+        
+        updateDeviceLists()
+    }
+    
     private func setupAudioSession() {
         do {
+            // First, set the category with all necessary options
             try audioSession.setCategory(.playAndRecord, 
                                        mode: .default, 
-                                       options: [.allowBluetooth, .defaultToSpeaker])
-            try audioSession.setActive(true)
+                                       options: [.allowBluetooth, .allowBluetoothA2DP, .defaultToSpeaker, .allowAirPlay])
+            
+            // Activate the session to make Bluetooth devices discoverable
+            try audioSession.setActive(true, options: [])
+            
+            print("Audio session setup completed with Bluetooth support")
+            
         } catch {
             print("Failed to setup audio session: \(error)")
         }
     }
     
     private func setupNotifications() {
+        // Listen for route changes (device connect/disconnect)
         NotificationCenter.default.addObserver(
             forName: AVAudioSession.routeChangeNotification,
             object: nil,
             queue: .main
-        ) { _ in
+        ) { notification in
             Task { @MainActor in
+                print("Audio route changed - refreshing device list")
+                
+                // Add a small delay to ensure the route change is complete
+                try? await Task.sleep(nanoseconds: 500_000_000) // 0.5 seconds
+                
+                self.updateDeviceLists()
+            }
+        }
+        
+        // Also listen for interruptions
+        NotificationCenter.default.addObserver(
+            forName: AVAudioSession.interruptionNotification,
+            object: nil,
+            queue: .main
+        ) { notification in
+            Task { @MainActor in
+                print("Audio session interrupted - refreshing device list")
                 self.updateDeviceLists()
             }
         }
     }
     
     private func updateDeviceLists() {
+        print("=== Updating Device Lists ===")
+        
         // Get available inputs
         let availableInputs = audioSession.availableInputs ?? []
         inputDevices = availableInputs.map { AudioDevice(from: $0, type: .input) }
+        print("Found \(inputDevices.count) input devices")
         
         // Get current route for outputs
         let currentRoute = audioSession.currentRoute
         var outputs: [AudioDevice] = []
         
-        // Add built-in outputs
-        outputs.append(AudioDevice(id: "builtin-speaker", 
-                                 name: "iPhone Speaker", 
-                                 type: .output))
-        outputs.append(AudioDevice(id: "builtin-receiver", 
-                                 name: "iPhone Earpiece", 
-                                 type: .output))
+        print("Current audio route has \(currentRoute.outputs.count) outputs:")
         
-        // Add route-based outputs
+        // Add current route outputs first (these are actively connected)
         for output in currentRoute.outputs {
             let device = AudioDevice(from: output, type: .output)
-            if !outputs.contains(where: { $0.id == device.id }) {
-                outputs.append(device)
-            }
+            outputs.append(device)
+            print("  - Current route output: \(device.name) (\(output.portType.rawValue))")
+        }
+        
+        // Add built-in outputs if they're not already detected
+        let builtInSpeaker = AudioDevice(id: "builtin-speaker", 
+                                       name: "iPhone Speaker", 
+                                       type: .output)
+        let builtInReceiver = AudioDevice(id: "builtin-receiver", 
+                                        name: "iPhone Earpiece", 
+                                        type: .output)
+        
+        // Only add built-in devices if similar ones aren't already detected
+        let hasBuiltInSpeaker = outputs.contains { output in
+            output.name.localizedCaseInsensitiveContains("speaker") || 
+            output.name.localizedCaseInsensitiveContains("built-in")
+        }
+        
+        let hasBuiltInReceiver = outputs.contains { output in
+            output.name.localizedCaseInsensitiveContains("receiver") || 
+            output.name.localizedCaseInsensitiveContains("earpiece")
+        }
+        
+        if !hasBuiltInSpeaker {
+            outputs.append(builtInSpeaker)
+            print("  - Added fallback: iPhone Speaker")
+        }
+        
+        if !hasBuiltInReceiver {
+            outputs.append(builtInReceiver)
+            print("  - Added fallback: iPhone Earpiece")
         }
         
         outputDevices = outputs
         
         // Set default selections if none are set
         if selectedInputDevice == nil {
-            selectedInputDevice = inputDevices.first { $0.name.contains("Microphone") } ?? inputDevices.first
+            selectedInputDevice = inputDevices.first { $0.name.localizedCaseInsensitiveContains("microphone") } ?? inputDevices.first
+            print("Selected default input: \(selectedInputDevice?.name ?? "None")")
         }
         
         if selectedOutputDevice == nil {
-            selectedOutputDevice = outputDevices.first { $0.name.contains("Speaker") } ?? outputDevices.first
+            // Prefer external devices (Bluetooth, wired) over built-in
+            selectedOutputDevice = outputDevices.first { device in
+                !device.name.localizedCaseInsensitiveContains("iphone") && 
+                !device.name.localizedCaseInsensitiveContains("receiver") &&
+                !device.name.localizedCaseInsensitiveContains("built-in")
+            } ?? outputDevices.first { device in
+                device.name.localizedCaseInsensitiveContains("speaker")
+            } ?? outputDevices.first
+            
+            print("Selected default output: \(selectedOutputDevice?.name ?? "None")")
         }
+        
+        print("=== Final Device Lists ===")
+        print("Input devices (\(inputDevices.count)):")
+        for device in inputDevices {
+            print("  - \(device.name) (ID: \(device.id))")
+        }
+        
+        print("Output devices (\(outputDevices.count)):")
+        for device in outputDevices {
+            print("  - \(device.name) (ID: \(device.id))")
+        }
+        print("=========================")
     }
     
     func setPreferredInput(_ device: AudioDevice?) {
@@ -291,8 +508,30 @@ class AudioDeviceManager: ObservableObject {
     
     func setPreferredOutput(_ device: AudioDevice?) {
         selectedOutputDevice = device
-        // Output routing is handled by the system and user preferences
-        // For karaoke apps, we mainly control this through audio session category options
+        
+        // For output devices, we need to work with the audio session's routing
+        // iOS handles most output routing automatically, but we can influence it
+        if let device = device {
+            do {
+                // If it's a built-in device, we can set specific options
+                if device.id == "builtin-speaker" {
+                    // Force to speaker
+                    try audioSession.overrideOutputAudioPort(.speaker)
+                } else if device.id == "builtin-receiver" {
+                    // Use default routing (earpiece)
+                    try audioSession.overrideOutputAudioPort(.none)
+                } else {
+                    // For external devices (Bluetooth, wired headphones), 
+                    // iOS typically routes to them automatically when connected
+                    try audioSession.overrideOutputAudioPort(.none)
+                }
+                
+                print("Output preference set to: \(device.name)")
+                
+            } catch {
+                print("Failed to set output preference: \(error)")
+            }
+        }
     }
 }
 
@@ -333,6 +572,16 @@ struct SettingsView: View {
                 VStack(spacing: 24) {
                     // Header with close button
                     HStack {
+                        Button("Refresh") {
+                            Task {
+                                await audioManager.refreshDevices()
+                            }
+                        }
+                        .font(.system(size: 16, weight: .medium))
+                        .foregroundColor(.white.opacity(0.8))
+                        
+                        Spacer()
+                        
                         Text("Settings")
                             .font(.system(size: 28, weight: .bold))
                             .foregroundColor(.white)
