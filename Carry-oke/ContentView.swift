@@ -104,7 +104,7 @@ struct SettingsButton: View {
                 .foregroundColor(.white)
                 .frame(width: 44, height: 44)
         }
-        .glassEffect(.regular.tint(Color(hex: "F87060").opacity(0.3)).interactive())
+        .modifier(GlassEffectModifier(tintColor: Color(hex: "F87060").opacity(0.3)))
     }
 }
 
@@ -125,7 +125,7 @@ struct MicrophoneButton: View {
                 .frame(width: 200, height: 200)
         }
         .scaleEffect(isPressed ? 0.90 : 1.0)
-        .glassEffect(.regular.tint(Color(hex: karaokeEngine.isRecording ? "FF4444" : "F87060").opacity(0.25)).interactive(), in: .circle)
+        .modifier(GlassEffectModifier(tintColor: Color(hex: karaokeEngine.isRecording ? "FF4444" : "F87060").opacity(0.25), shape: .circle))
         .onLongPressGesture(minimumDuration: 0, maximumDistance: .infinity, pressing: { pressing in
             withAnimation(.easeInOut(duration: 0.1)) {
                 isPressed = pressing
@@ -156,7 +156,7 @@ struct PlaylistBar: View {
         }
         .padding(.horizontal, 20)
         .padding(.vertical, 16)
-        .glassEffect(.regular.tint(Color(hex: "F87060").opacity(0.2)).interactive(), in: .capsule)
+        .modifier(GlassEffectModifier(tintColor: Color(hex: "F87060").opacity(0.2), shape: .capsule))
     }
 }
 
@@ -202,6 +202,58 @@ extension Color {
             opacity: Double(a) / 255
         )
     }
+}
+
+// MARK: - Glass Effect Modifier with Fallback
+struct GlassEffectModifier: ViewModifier {
+    let tintColor: Color
+    let shape: GlassShape
+    
+    init(tintColor: Color, shape: GlassShape = .capsule) {
+        self.tintColor = tintColor
+        self.shape = shape
+    }
+    
+    func body(content: Content) -> some View {
+        if #available(iOS 18.0, *) {
+            switch shape {
+            case .capsule:
+                content
+                    .glassEffect(.regular.tint(tintColor).interactive())
+            case .circle:
+                content
+                    .glassEffect(.regular.tint(tintColor).interactive(), in: .circle)
+            case .rect(let cornerRadius):
+                content
+                    .glassEffect(.regular.tint(tintColor).interactive(), in: .rect(cornerRadius: cornerRadius))
+            }
+        } else {
+            // Fallback for iOS 17 and earlier
+            content
+                .background {
+                    switch shape {
+                    case .capsule:
+                        Capsule()
+                            .fill(.ultraThinMaterial)
+                            .overlay(Capsule().fill(tintColor))
+                    case .circle:
+                        Circle()
+                            .fill(.ultraThinMaterial)
+                            .overlay(Circle().fill(tintColor))
+                    case .rect(let cornerRadius):
+                        RoundedRectangle(cornerRadius: cornerRadius)
+                            .fill(.ultraThinMaterial)
+                            .overlay(RoundedRectangle(cornerRadius: cornerRadius).fill(tintColor))
+                    }
+                }
+        }
+    }
+}
+
+enum GlassShape {
+    case capsule
+    case circle
+    case rect(cornerRadius: CGFloat)
 }
 
 // MARK: - Karaoke Audio Engine
