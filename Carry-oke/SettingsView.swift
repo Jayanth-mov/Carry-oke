@@ -25,6 +25,7 @@ struct SettingsView: View {
                     
                     // Top glow effect
                     VStack {
+                        Spacer()
                         LinearGradient(
                             gradient: Gradient(colors: [
                                 Color(hex: "C49FCC").opacity(0.9),
@@ -36,7 +37,7 @@ struct SettingsView: View {
                         .frame(height: 350)
                         .blur(radius: 50)
                         
-                        Spacer()
+                        
                     }
                     .ignoresSafeArea()
                 }
@@ -110,8 +111,8 @@ struct SettingsView: View {
                                     .font(.system(size: 16, weight: .medium))
                                     .foregroundColor(Color(.white))
                                 Text("1.0")
-                                    .font(.system(size: 16, weight: .medium))
-                                    .foregroundColor(Color(hex: "E57891"))
+                                    .font(.system(size: 16, weight: .black))
+                                    .foregroundColor(Color(hex: "#ffa59c"))
                             }
                         }
                         

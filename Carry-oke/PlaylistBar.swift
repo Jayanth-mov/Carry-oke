@@ -9,37 +9,18 @@ import SwiftUI
 
 // MARK: - Playlist Bar (Liquid Glass)
 struct PlaylistBar: View {
-    @State private var isExpanded = false
+    @State private var isShowingQueue = false
     
     var body: some View {
-        VStack(spacing: 0) {
-            if isExpanded {
-                ExpandedPlaylistView(onClose: collapsePlaylist)
-                    .transition(.asymmetric(
-                        insertion: .move(edge: .top).combined(with: .opacity),
-                        removal: .move(edge: .top).combined(with: .opacity)
-                    ))
+        // Collapsed Playlist Bar
+        PlaylistBarCollapsed()
+            .onTapGesture {
+                isShowingQueue = true
             }
-            
-            // Collapsed Playlist Bar
-            PlaylistBarCollapsed()
-                .onTapGesture {
-                    expandPlaylist()
-                }
-        }
-        .modifier(GlassEffectModifier(tintColor: Color(hex: "F87060").opacity(0.2), shape: .rect(cornerRadius: isExpanded ? 20 : 25)))
-    }
-    
-    private func expandPlaylist() {
-        withAnimation(.spring(response: 0.6, dampingFraction: 0.8)) {
-            isExpanded = true
-        }
-    }
-    
-    private func collapsePlaylist() {
-        withAnimation(.spring(response: 0.5, dampingFraction: 0.8)) {
-            isExpanded = false
-        }
+            .modifier(GlassEffectModifier(tintColor: Color(hex: "F87060").opacity(0.2), shape: .rect(cornerRadius: 25)))
+            .sheet(isPresented: $isShowingQueue) {
+                QueueSheetView()
+            }
     }
 }
 
@@ -68,89 +49,135 @@ struct PlaylistBarCollapsed: View {
     }
 }
 
-// MARK: - Expanded Playlist View
-struct ExpandedPlaylistView: View {
-    let onClose: () -> Void
-    
-    var body: some View {
-        VStack(spacing: 0) {
-            // Header with close button and add button
-            ExpandedPlaylistHeader(onClose: onClose)
-            
-            // Queue section
-            PlaylistQueueView()
-                .padding(.horizontal, 20)
-            
-            // Current playing section (if needed)
-            CurrentPlayingSection()
-                .padding(.horizontal, 20)
-                .padding(.bottom, 20)
-        }
-        .frame(maxHeight: 400) // Limit the maximum height
-    }
-}
-
-// MARK: - Expanded Playlist Header
-struct ExpandedPlaylistHeader: View {
-    let onClose: () -> Void
-    
-    var body: some View {
-        HStack {
-            Button(action: onClose) {
-                Image(systemName: "chevron.down")
-                    .font(.system(size: 18, weight: .medium))
-                    .foregroundColor(.white.opacity(0.8))
-                    .frame(width: 32, height: 32)
-            }
-            
-            Spacer()
-            
-            Text("Queue")
-                .font(.system(size: 18, weight: .semibold))
-                .foregroundColor(.white)
-            
-            Spacer()
-            
-            Button(action: {
-                // Add song action (dummy for now)
-                print("Add song tapped")
-            }) {
-                Image(systemName: "plus")
-                    .font(.system(size: 18, weight: .medium))
-                    .foregroundColor(.white)
-                    .frame(width: 32, height: 32)
-            }
-        }
-        .padding(.horizontal, 20)
-        .padding(.vertical, 16)
-        .background(
-            Rectangle()
-                .fill(Color.black.opacity(0.1))
-        )
-    }
-}
-
-// MARK: - Playlist Queue View
-struct PlaylistQueueView: View {
+// MARK: - Queue Sheet View (Full Screen)
+struct QueueSheetView: View {
+    @Environment(\.dismiss) private var dismiss
     @State private var queueItems: [QueueItem] = []
     
     var body: some View {
-        VStack(spacing: 12) {
-            if queueItems.isEmpty {
-                EmptyQueueView()
-            } else {
-                ScrollView {
-                    LazyVStack(spacing: 8) {
-                        ForEach(queueItems) { item in
-                            QueueItemRow(item: item)
+        NavigationView {
+            ZStack {
+                // Background matching app theme
+                Color(hex: "412234")
+                    .ignoresSafeArea()
+                
+                // Background gradient effect
+                VStack {
+                    Spacer()
+                    
+                    LinearGradient(
+                        gradient: Gradient(colors: [
+                            Color(hex: "B49FCC").opacity(0.6),
+                            Color(hex: "C49FCC").opacity(0)
+                        ]),
+                        startPoint: .bottom,
+                        endPoint: .top
+                    )
+                    .frame(height: 400)
+                    .blur(radius: 30)
+                    
+                    
+                }
+                .ignoresSafeArea()
+                
+                // Content
+                VStack(spacing: 0) {
+                    HStack {
+                        Text("Currently Playing:")
+                            .font(.system(size: 18, weight: .medium))
+                            .padding(.bottom, 10)
+                            .padding(.horizontal, 20)
+                        Spacer()
+                    }
+                    // Mini player bar at top
+                    MiniPlayerBar()
+                        .padding(.horizontal, 20)
+                        .padding(.top, 0)
+                    HStack {
+                        Text("Queue")
+                            .font(Font.largeTitle.bold())
+                            .padding(.horizontal, 20)
+                            .padding(.vertical, 10)
+                        Spacer()
+                    }
+                    
+                        
+                    
+                    // Queue content
+                    if queueItems.isEmpty {
+                        Spacer()
+                        EmptyQueueView()
+                        Spacer()
+                    } else {
+                        ScrollView {
+                            LazyVStack(spacing: 8) {
+                                ForEach(queueItems) { item in
+                                    QueueItemRow(item: item)
+                                        .padding(.horizontal, 20)
+                                    
+//                                    This hidden code is supposed to be for the song
+//                                    HStack(spacing: 20) {
+//                                        PlayButton(systemName: "backward.end.fill", size: 20)
+//                                        PlayButton(systemName: "play.fill", size: 24)
+//                                        PlayButton(systemName: "forward.end.fill", size: 20)
+//                                    }
+                                }
+                            }
+                            .padding(.top, 20)
                         }
+                    }
+                    
+                }
+            }
+            .toolbar {
+                ToolbarItem(placement: .navigationBarLeading) {
+                    Button("Done") {
+                        dismiss()
+                    }
+                    .foregroundColor(.white)
+                    .font(.system(size: 17, weight: .medium))
+                }
+                
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Button(action: {
+                        // Add song action (dummy for now)
+                        print("Add song tapped")
+                    }) {
+                        Image(systemName: "plus")
+                            .font(.system(size: 18, weight: .medium))
+                            .foregroundColor(.white)
                     }
                 }
             }
         }
-        .frame(maxHeight: 250)
+        .preferredColorScheme(.dark)
     }
 }
+
+// MARK: - Mini Player Bar
+struct MiniPlayerBar: View {
+    var body: some View {
+        HStack {
+            VStack(alignment: .leading, spacing: 2) {
+                Text("No song playing")
+                    .font(.system(size: 16, weight: .medium))
+                    .foregroundColor(.white)
+                    .lineLimit(1)
+                
+                Text("Select a song to play")
+                    .font(.system(size: 14))
+                    .foregroundColor(.white.opacity(0.7))
+                    .lineLimit(1)
+            }
+            
+            Spacer()
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 12)
+        .modifier(GlassEffectModifier(tintColor: Color(hex: "F87060").opacity(0.2), shape: .rect(cornerRadius: 16)))
+    }
+}
+
 
 // MARK: - Empty Queue View
 struct EmptyQueueView: View {
@@ -164,7 +191,7 @@ struct EmptyQueueView: View {
                 .font(.system(size: 18, weight: .medium))
                 .foregroundColor(.white.opacity(0.8))
             
-            Text("Add songs to see them here")
+            Text("Hit the '+' button at the top \nto add songs")
                 .font(.system(size: 14))
                 .foregroundColor(.white.opacity(0.6))
                 .multilineTextAlignment(.center)
@@ -222,25 +249,7 @@ struct QueueItemRow: View {
     }
 }
 
-// MARK: - Current Playing Section
-struct CurrentPlayingSection: View {
-    var body: some View {
-        VStack(spacing: 16) {            
-            // Progress bar (optional)
-            HStack {
-                Text("0:00")
-                    .font(.system(size: 12))
-                    .foregroundColor(.white.opacity(0.6))
-                
-                Spacer()
-                
-                Text("0:00")
-                    .font(.system(size: 12))
-                    .foregroundColor(.white.opacity(0.6))
-            }
-        }
-    }
-}
+
 
 // MARK: - Queue Item Model
 struct QueueItem: Identifiable {
