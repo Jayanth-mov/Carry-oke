@@ -175,39 +175,25 @@ struct MicrophoneButton: View {
     }
 }
 
-// MARK: - Playlist Bar (Liquid Glass)
-struct PlaylistBar: View {
-    var body: some View {
-        HStack {
-            VStack(alignment: .leading, spacing: 2) {
-                Text("Playlist is empty.")
-                    .font(.system(size: 16, weight: .medium))
-                    .foregroundColor(.white)
-            }
-            
-            Spacer()
-            
-            HStack(spacing: 16) {
-                PlayButton(systemName: "play.fill")
-                PlayButton(systemName: "forward.end.fill")
-            }
-        }
-        .padding(.horizontal, 20)
-        .padding(.vertical, 16)
-        .modifier(GlassEffectModifier(tintColor: Color(hex: "F87060").opacity(0.2), shape: .capsule))
-    }
-}
+
 
 // MARK: - Play Button Component
 struct PlayButton: View {
     let systemName: String
+    let size: CGFloat
+    
+    init(systemName: String, size: CGFloat = 16) {
+        self.systemName = systemName
+        self.size = size
+    }
     
     var body: some View {
         Button(action: {
             // Play button action
+            print("\(systemName) tapped")
         }) {
             Image(systemName: systemName)
-                .font(.system(size: 16, weight: .medium))
+                .font(.system(size: size, weight: .medium))
                 .foregroundColor(.white)
                 .frame(width: 32, height: 32)
         }
