@@ -32,7 +32,7 @@ struct ContentView: View {
                     
                     Spacer()
                     
-                    MicClarityBar()
+                    MicClarityBar(karaokeEngine: karaokeEngine)
                         .padding(.bottom, 12) // Space between bars
                     
                     // Playlist Bar
@@ -304,6 +304,15 @@ class KaraokeAudioEngine: ObservableObject {
     @Published var isMicrophoneInitialized = false {
         didSet {
             print("🎙️ DEBUG: isMicrophoneInitialized changed from \(oldValue) to \(isMicrophoneInitialized)")
+        }
+    }
+    @Published var echoReduction: Double = 0.5 {
+        didSet {
+            print("🔊 DEBUG: echoReduction changed from \(oldValue) to \(echoReduction)")
+            // Apply echo reduction when karaoke is active
+            if isRecording {
+                applyEchoReduction()
+            }
         }
     }
     
@@ -660,6 +669,20 @@ class KaraokeAudioEngine: ObservableObject {
         
         isRecording = false
         print("✅ DEBUG: Karaoke mode stopped - Final state: isRecording=\(isRecording), audioEngine.isRunning=\(audioEngine.isRunning)")
+    }
+    
+    private func applyEchoReduction() {
+        guard audioEngine.isRunning else { return }
+        
+        // Get the main mixer node to adjust output volume
+        let mainMixer = audioEngine.mainMixerNode
+        
+        // Apply echo reduction by adjusting the output volume
+        // Higher echo reduction = lower output volume to reduce feedback
+        let outputVolume = Float(1.0 - (echoReduction * 0.5)) // Reduce volume by up to 50%
+        mainMixer.outputVolume = max(0.1, outputVolume) // Minimum 10% volume
+        
+        print("🔊 DEBUG: Applied echo reduction: \(echoReduction), output volume: \(outputVolume)")
     }
 }
 

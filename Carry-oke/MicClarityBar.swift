@@ -10,11 +10,12 @@ import SwiftUI
 // MARK: - Microphone Clarity Bar (Liquid Glass)
 struct MicClarityBar: View {
     @State private var isExpanded = false
+    @ObservedObject var karaokeEngine: KaraokeAudioEngine
     
     var body: some View {
         VStack(spacing: 0) {
             if isExpanded {
-                ExpandedMicClarityView(onClose: collapseMicClarity)
+                ExpandedMicClarityView(onClose: collapseMicClarity, karaokeEngine: karaokeEngine)
                     .transition(.asymmetric(
                         insertion: .move(edge: .top).combined(with: .opacity),
                         removal: .move(edge: .top).combined(with: .opacity)
@@ -79,14 +80,12 @@ struct MicClarityBarCollapsed: View {
 // MARK: - Expanded Mic Clarity View
 struct ExpandedMicClarityView: View {
     let onClose: () -> Void
+    @ObservedObject var karaokeEngine: KaraokeAudioEngine
     
     var body: some View {
         VStack(spacing: 0) {
-            // Header with close button
-            ExpandedMicClarityHeader(onClose: onClose)
-            
-            // Empty content area (for future additions)
-            MicClarityContentView()
+            // Content area - shows different content based on mic initialization
+            MicClarityContentView(karaokeEngine: karaokeEngine)
                 .padding(.horizontal, 20)
                 .padding(.bottom, 20)
         }
@@ -94,60 +93,92 @@ struct ExpandedMicClarityView: View {
     }
 }
 
-// MARK: - Expanded Mic Clarity Header
-struct ExpandedMicClarityHeader: View {
-    let onClose: () -> Void
-    
-    var body: some View {
-        HStack {
-            Button(action: onClose) {
-                Image(systemName: "chevron.down")
-                    .font(.system(size: 18, weight: .medium))
-                    .foregroundColor(.white.opacity(0.8))
-                    .frame(width: 32, height: 32)
-            }
-            
-            Spacer()
-            
-            Text("Microphone Clarity")
-                .font(.system(size: 18, weight: .semibold))
-                .foregroundColor(.white)
-            
-            Spacer()
-            
-            // Placeholder for future action button
-            Rectangle()
-                .fill(Color.clear)
-                .frame(width: 32, height: 32)
-        }
-        .padding(.horizontal, 20)
-        .padding(.vertical, 16)
-        .background(
-            Rectangle()
-                .fill(Color.black.opacity(0.1))
-        )
-    }
-}
-
 // MARK: - Mic Clarity Content View
 struct MicClarityContentView: View {
+    @ObservedObject var karaokeEngine: KaraokeAudioEngine
+    @State private var isVisible = false
+    
     var body: some View {
         VStack(spacing: 16) {
-            Image(systemName: "mic.badge.plus")
-                .font(.system(size: 48))
-                .foregroundColor(.white.opacity(0.4))
-            
-            Text("Coming Soon")
-                .font(.system(size: 18, weight: .medium))
-                .foregroundColor(.white.opacity(0.8))
-            
-            Text("Microphone clarity features will be added here")
-                .font(.system(size: 14))
-                .foregroundColor(.white.opacity(0.6))
-                .multilineTextAlignment(.center)
+            if karaokeEngine.isMicrophoneInitialized {
+                // Show echo reduction controls when microphone is initialized
+                EchoReductionView(karaokeEngine: karaokeEngine, isVisible: $isVisible)
+            } else {
+                // Show unavailable message when microphone is not initialized
+                UnavailableView(isVisible: $isVisible)
+            }
         }
         .frame(maxWidth: .infinity)
         .padding(.vertical, 40)
+        .onAppear {
+            isVisible = true
+        }
+        .onDisappear {
+            isVisible = false
+        }
+    }
+}
+
+// MARK: - Echo Reduction View
+struct EchoReductionView: View {
+    @ObservedObject var karaokeEngine: KaraokeAudioEngine
+    @Binding var isVisible: Bool
+    
+    var body: some View {
+        VStack(spacing: 20) {
+            Text("Echo Reduction")
+                .font(.system(size: 18, weight: .medium))
+                .foregroundColor(.white.opacity(0.8))
+                .opacity(isVisible ? 1 : 0)
+                .animation(.easeInOut(duration: 0.1), value: isVisible)
+            
+            VStack(spacing: 8) {
+                HStack {
+                    Text("Off")
+                        .font(.system(size: 12))
+                        .foregroundColor(.white.opacity(0.6))
+                    
+                    Spacer()
+                    
+                    Text("Max")
+                        .font(.system(size: 12))
+                        .foregroundColor(.white.opacity(0.6))
+                }
+                
+                Slider(value: $karaokeEngine.echoReduction, in: 0...1)
+                    .accentColor(.white)
+            }
+            .opacity(isVisible ? 1 : 0)
+            .animation(.easeInOut(duration: 0.1), value: isVisible)
+        }
+    }
+}
+
+// MARK: - Unavailable View
+struct UnavailableView: View {
+    @Binding var isVisible: Bool
+    
+    var body: some View {
+        VStack(spacing: 16) {
+            Image(systemName: "exclamationmark.triangle")
+                .font(.system(size: 48))
+                .foregroundColor(.white.opacity(0.4))
+                .opacity(isVisible ? 1 : 0)
+                .animation(.easeInOut(duration: 0.1), value: isVisible)
+            
+            Text("Clarity Settings Unavailable")
+                .font(.system(size: 18, weight: .medium))
+                .foregroundColor(.white.opacity(0.8))
+                .opacity(isVisible ? 1 : 0)
+                .animation(.easeInOut(duration: 0.1), value: isVisible)
+            
+            Text("Microphone is not initialized")
+                .font(.system(size: 14))
+                .foregroundColor(.white.opacity(0.6))
+                .multilineTextAlignment(.center)
+                .opacity(isVisible ? 1 : 0)
+                .animation(.easeInOut(duration: 0.1), value: isVisible)
+        }
     }
 }
 
