@@ -28,7 +28,7 @@ struct ContentView: View {
                     Spacer()
                     
                     // Main Microphone Button
-                    MicrophoneButton(karaokeEngine: karaokeEngine)
+                    MicrophoneButton(karaokeEngine: karaokeEngine, showingSettings: $showingSettings)
                     
                     Spacer()
                     
@@ -118,6 +118,7 @@ struct SettingsButton: View {
 struct MicrophoneButton: View {
     @State private var isPressed = false
     @ObservedObject var karaokeEngine: KaraokeAudioEngine
+    @Binding var showingSettings: Bool  // Changed from @State to @Binding
     @State private var showingAlert = false
     @State private var alertMessage = ""
     
@@ -162,7 +163,9 @@ struct MicrophoneButton: View {
             karaokeEngine.refreshExternalOutputStatus()
         }
         .alert("External Audio Device Required", isPresented: $showingAlert) {
-            Button("OK") { }
+            Button ("Open Settings") {
+                showingSettings = true
+            }
         } message: {
             Text(alertMessage)
         }
