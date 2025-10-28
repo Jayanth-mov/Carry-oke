@@ -124,10 +124,13 @@ struct MicrophoneButton: View {
     
     var body: some View {
         Button(action: {
+            print("🎯 DEBUG: Microphone button pressed - Current state: isRecording=\(karaokeEngine.isRecording)")
             Task {
                 do {
                     try await karaokeEngine.toggleKaraoke()
+                    print("✅ DEBUG: toggleKaraoke completed successfully")
                 } catch {
+                    print("❌ DEBUG: toggleKaraoke failed with error: \(error)")
                     alertMessage = error.localizedDescription
                     showingAlert = true
                 }
@@ -294,10 +297,26 @@ enum GlassShape {
 // MARK: - Karaoke Audio Engine
 @MainActor
 class KaraokeAudioEngine: ObservableObject {
-    @Published var isRecording = false
-    @Published var hasPermission = false
-    @Published var hasExternalOutput = false
-    @Published var isMicrophoneInitialized = false
+    @Published var isRecording = false {
+        didSet {
+            print("🎤 DEBUG: isRecording changed from \(oldValue) to \(isRecording)")
+        }
+    }
+    @Published var hasPermission = false {
+        didSet {
+            print("🔒 DEBUG: hasPermission changed from \(oldValue) to \(hasPermission)")
+        }
+    }
+    @Published var hasExternalOutput = false {
+        didSet {
+            print("🔊 DEBUG: hasExternalOutput changed from \(oldValue) to \(hasExternalOutput)")
+        }
+    }
+    @Published var isMicrophoneInitialized = false {
+        didSet {
+            print("🎙️ DEBUG: isMicrophoneInitialized changed from \(oldValue) to \(isMicrophoneInitialized)")
+        }
+    }
     
     private let audioEngine = AVAudioEngine()
     private let playerNode = AVAudioPlayerNode()
@@ -399,46 +418,54 @@ class KaraokeAudioEngine: ObservableObject {
     }
     
     private func setupAudioEngineConnections() {
+        print("🔗 DEBUG: setupAudioEngineConnections() called")
+        
         // Stop and reset the audio engine first
         if audioEngine.isRunning {
+            print("🛑 DEBUG: Stopping running audio engine...")
             audioEngine.stop()
         }
+        print("🔄 DEBUG: Resetting audio engine...")
         audioEngine.reset()
         
         // Get the input node (microphone)
         let inputNode = audioEngine.inputNode
+        print("🎙️ DEBUG: Got input node")
         
         // Get the main mixer node (output)
         let mainMixer = audioEngine.mainMixerNode
+        print("🔊 DEBUG: Got main mixer node")
         
         // Create a compatible format for the connection
         // Use the input node's output format, but ensure it's valid
         let inputFormat = inputNode.outputFormat(forBus: 0)
         
-        print("Input format: \(inputFormat)")
-        print("Sample rate: \(inputFormat.sampleRate), channels: \(inputFormat.channelCount)")
+        print("📊 DEBUG: Input format: \(inputFormat)")
+        print("📊 DEBUG: Sample rate: \(inputFormat.sampleRate), channels: \(inputFormat.channelCount)")
         
         // Validate the format before connecting
         guard inputFormat.sampleRate > 0 && inputFormat.channelCount > 0 else {
-            print("ERROR: Invalid input format detected")
+            print("❌ DEBUG: ERROR: Invalid input format detected")
             return
         }
         
         do {
             // Connect input directly to output (pass-through)
+            print("🔗 DEBUG: Connecting input to mixer...")
             audioEngine.connect(inputNode, to: mainMixer, format: inputFormat)
-            print("Successfully connected audio nodes with format: \(inputFormat)")
+            print("✅ DEBUG: Successfully connected audio nodes with format: \(inputFormat)")
         } catch {
-            print("Failed to connect audio nodes: \(error)")
+            print("❌ DEBUG: Failed to connect audio nodes: \(error)")
             
             // Fallback: try with a standard format
+            print("🔄 DEBUG: Trying fallback with standard format...")
             let standardFormat = AVAudioFormat(standardFormatWithSampleRate: 44100.0, channels: 1)
             if let standardFormat = standardFormat {
                 do {
                     audioEngine.connect(inputNode, to: mainMixer, format: standardFormat)
-                    print("Successfully connected audio nodes with standard format: \(standardFormat)")
+                    print("✅ DEBUG: Successfully connected audio nodes with standard format: \(standardFormat)")
                 } catch {
-                    print("Failed to connect with standard format: \(error)")
+                    print("❌ DEBUG: Failed to connect with standard format: \(error)")
                 }
             }
         }
@@ -474,9 +501,11 @@ class KaraokeAudioEngine: ObservableObject {
     }
     
     private func forceExternalOutputOnly() throws {
+        print("🔊 DEBUG: forceExternalOutputOnly() called")
+        
         let currentRoute = audioSession.currentRoute
         
-        print("Current audio route outputs: \(currentRoute.outputs.map { $0.portType.rawValue })")
+        print("🔊 DEBUG: Current audio route outputs: \(currentRoute.outputs.map { $0.portType.rawValue })")
         
         // Check if we have any external outputs available
         let externalOutputs = currentRoute.outputs.filter { output in
@@ -490,18 +519,22 @@ class KaraokeAudioEngine: ObservableObject {
                    output.portType == .usbAudio
         }
         
+        let previousExternalOutput = hasExternalOutput
         hasExternalOutput = !externalOutputs.isEmpty
+        print("🔊 DEBUG: External outputs found: \(externalOutputs.count), hasExternalOutput changed from \(previousExternalOutput) to \(hasExternalOutput)")
         
         if externalOutputs.isEmpty {
             // No external outputs available - throw an error to prevent built-in speaker usage
-            print("ERROR: No external output devices detected. Please connect AirPods, headphones, or a Bluetooth speaker.")
+            print("❌ DEBUG: No external output devices detected. Please connect AirPods, headphones, or a Bluetooth speaker.")
             throw NSError(domain: "KaraokeError", code: 1, userInfo: [NSLocalizedDescriptionKey: "External audio device required. Please connect an external bluetooth speaker."])
         } else {
-            print("External output devices detected: \(externalOutputs.map { $0.portName })")
+            print("✅ DEBUG: External output devices detected: \(externalOutputs.map { $0.portName })")
         }
         
         // Override the route to prefer external outputs
+        print("🔧 DEBUG: Overriding output audio port...")
         try audioSession.overrideOutputAudioPort(.none) // This removes built-in speaker preference
+        print("✅ DEBUG: Output audio port override completed")
     }
     
     func refreshExternalOutputStatus() {
@@ -529,68 +562,115 @@ class KaraokeAudioEngine: ObservableObject {
     }
     
     func toggleKaraoke() async throws {
+        print("🎯 DEBUG: toggleKaraoke() called - Current state: isRecording=\(isRecording), audioEngine.isRunning=\(audioEngine.isRunning)")
+        
         // Check if we have permission, request it if we don't
         if !hasPermission {
+            print("🔒 DEBUG: No permission, requesting...")
             await requestMicrophonePermission()
             guard hasPermission else {
+                print("❌ DEBUG: Permission denied, throwing error")
                 throw NSError(domain: "KaraokeError", code: 2, userInfo: [NSLocalizedDescriptionKey: "Microphone permission denied"])
             }
         }
         
+        print("🎯 DEBUG: About to toggle - isRecording=\(isRecording)")
         if isRecording {
+            print("🛑 DEBUG: Calling stopKaraoke()")
             stopKaraoke()
         } else {
+            print("▶️ DEBUG: Calling startKaraoke()")
             try startKaraoke()
         }
+        
+        print("🎯 DEBUG: toggleKaraoke() completed - Final state: isRecording=\(isRecording), audioEngine.isRunning=\(audioEngine.isRunning)")
     }
     
     private func startKaraoke() throws {
-        guard !audioEngine.isRunning else { return }
+        print("▶️ DEBUG: startKaraoke() called - audioEngine.isRunning=\(audioEngine.isRunning)")
+        
+        guard !audioEngine.isRunning else { 
+            print("⚠️ DEBUG: Audio engine already running, returning early")
+            return 
+        }
         
         do {
+            print("🔧 DEBUG: Starting karaoke setup...")
+            
             // Activate audio session
+            print("📱 DEBUG: Activating audio session...")
             try audioSession.setActive(true)
+            print("✅ DEBUG: Audio session activated")
             
             // Ensure built-in microphone is selected
+            print("🎙️ DEBUG: Setting up built-in microphone...")
             try forceBuiltInMicrophoneOnly()
+            print("✅ DEBUG: Built-in microphone setup completed")
             
             // Ensure we're still forcing external output
+            print("🔊 DEBUG: Checking external output...")
             try forceExternalOutputOnly()
+            print("✅ DEBUG: External output check completed")
             
             // Re-setup audio engine connections to ensure they're valid
+            print("🔗 DEBUG: Setting up audio engine connections...")
             setupAudioEngineConnections()
+            print("✅ DEBUG: Audio engine connections setup completed")
             
             // Prepare the audio engine before starting
+            print("🏗️ DEBUG: Preparing audio engine...")
             audioEngine.prepare()
+            print("✅ DEBUG: Audio engine prepared")
             
             // Start the audio engine
+            print("🚀 DEBUG: Starting audio engine...")
             try audioEngine.start()
+            print("✅ DEBUG: Audio engine started successfully - isRunning=\(audioEngine.isRunning)")
             
             isRecording = true
-            print("Karaoke mode started - built-in microphone, external speakers only")
+            print("✅ DEBUG: Karaoke mode started - built-in microphone, external speakers only")
             
         } catch {
-            print("Failed to start karaoke: \(error)")
+            print("❌ DEBUG: Failed to start karaoke: \(error)")
+            print("🔄 DEBUG: Resetting isRecording to false")
             isRecording = false
+            print("🧹 DEBUG: Cleaning up after error...")
+            
+            // Clean up on error
+            if audioEngine.isRunning {
+                print("🛑 DEBUG: Stopping audio engine due to error...")
+                audioEngine.stop()
+            }
+            
             throw error
         }
     }
     
     private func stopKaraoke() {
-        guard audioEngine.isRunning else { return }
+        print("🛑 DEBUG: stopKaraoke() called - audioEngine.isRunning=\(audioEngine.isRunning), isRecording=\(isRecording)")
+        
+        guard audioEngine.isRunning else { 
+            print("⚠️ DEBUG: Audio engine not running, but isRecording=\(isRecording) - resetting state")
+            isRecording = false
+            return 
+        }
         
         // Stop the audio engine
+        print("🛑 DEBUG: Stopping audio engine...")
         audioEngine.stop()
+        print("✅ DEBUG: Audio engine stopped - isRunning=\(audioEngine.isRunning)")
         
         do {
             // Deactivate audio session
+            print("📱 DEBUG: Deactivating audio session...")
             try audioSession.setActive(false, options: .notifyOthersOnDeactivation)
+            print("✅ DEBUG: Audio session deactivated")
         } catch {
-            print("Failed to deactivate audio session: \(error)")
+            print("❌ DEBUG: Failed to deactivate audio session: \(error)")
         }
         
         isRecording = false
-        print("Karaoke mode stopped")
+        print("✅ DEBUG: Karaoke mode stopped - Final state: isRecording=\(isRecording), audioEngine.isRunning=\(audioEngine.isRunning)")
     }
 }
 
