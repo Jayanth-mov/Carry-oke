@@ -11,6 +11,7 @@ import Combine
 
 struct ContentView: View {
     @State private var showingSettings = false
+    @StateObject private var karaokeEngine = KaraokeAudioEngine()
     
     var body: some View {
         GeometryReader { geometry in
@@ -21,13 +22,13 @@ struct ContentView: View {
                 // Main Content
                 VStack(spacing: 0) {
                     // Header
-                    HeaderView(showingSettings: $showingSettings)
+                    HeaderView(showingSettings: $showingSettings, isKaraokeActive: karaokeEngine.isRecording)
                         .padding(.top, 60)
                     
                     Spacer()
                     
                     // Main Microphone Button
-                    MicrophoneButton()
+                    MicrophoneButton(karaokeEngine: karaokeEngine)
                     
                     Spacer()
                     
@@ -76,6 +77,7 @@ struct BackgroundView: View {
 // MARK: - Header View
 struct HeaderView: View {
     @Binding var showingSettings: Bool
+    let isKaraokeActive: Bool
     
     var body: some View {
         HStack {
@@ -85,9 +87,13 @@ struct HeaderView: View {
             
             Spacer()
             
-            // Settings Button
-            SettingsButton(showingSettings: $showingSettings)
+            // Settings Button - hidden when karaoke is active
+            if !isKaraokeActive {
+                SettingsButton(showingSettings: $showingSettings)
+                    .transition(.opacity.combined(with: .scale))
+            }
         }
+        .animation(.easeInOut(duration: 0.3), value: isKaraokeActive)
     }
 }
 
@@ -111,21 +117,41 @@ struct SettingsButton: View {
 // MARK: - Microphone Button (Liquid Glass)
 struct MicrophoneButton: View {
     @State private var isPressed = false
-    @StateObject private var karaokeEngine = KaraokeAudioEngine()
+    @ObservedObject var karaokeEngine: KaraokeAudioEngine
+    @State private var showingAlert = false
+    @State private var alertMessage = ""
     
     var body: some View {
         Button(action: {
             Task {
-                await karaokeEngine.toggleKaraoke()
+                do {
+                    try await karaokeEngine.toggleKaraoke()
+                } catch {
+                    alertMessage = error.localizedDescription
+                    showingAlert = true
+                }
             }
         }) {
-            Image(systemName: karaokeEngine.isRecording ? "mic.fill" : "mic.fill")
-                .font(.system(size: 60, weight: .medium))
-                .foregroundColor(karaokeEngine.isRecording ? .red : .white)
-                .frame(width: 200, height: 200)
+            VStack(spacing: 8) {
+                Image(systemName: karaokeEngine.isRecording ? "mic.fill" : "mic.fill")
+                    .font(.system(size: 60, weight: .medium))
+                    .foregroundColor(karaokeEngine.isRecording ? .red : .white)
+                
+                if !karaokeEngine.hasExternalOutput && !karaokeEngine.isRecording {
+                    Text("Connect AirPods or\nBluetooth Speaker")
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundColor(.white.opacity(0.7))
+                        .multilineTextAlignment(.center)
+                }
+            }
+            .frame(width: 200, height: 200)
         }
         .scaleEffect(isPressed ? 0.90 : 1.0)
-        .modifier(GlassEffectModifier(tintColor: Color(hex: karaokeEngine.isRecording ? "FF4444" : "F87060").opacity(0.25), shape: .circle))
+        .modifier(GlassEffectModifier(
+            tintColor: Color(hex: karaokeEngine.isRecording ? "FF4444" : 
+                            (karaokeEngine.hasExternalOutput ? "F87060" : "666666")).opacity(0.25), 
+            shape: .circle
+        ))
         .onLongPressGesture(minimumDuration: 0, maximumDistance: .infinity, pressing: { pressing in
             withAnimation(.easeInOut(duration: 0.1)) {
                 isPressed = pressing
@@ -133,6 +159,11 @@ struct MicrophoneButton: View {
         }, perform: {})
         .task {
             await karaokeEngine.requestMicrophonePermission()
+        }
+        .alert("External Audio Device Required", isPresented: $showingAlert) {
+            Button("OK") { }
+        } message: {
+            Text(alertMessage)
         }
     }
 }
@@ -261,6 +292,7 @@ enum GlassShape {
 class KaraokeAudioEngine: ObservableObject {
     @Published var isRecording = false
     @Published var hasPermission = false
+    @Published var hasExternalOutput = false
     
     private let audioEngine = AVAudioEngine()
     private let playerNode = AVAudioPlayerNode()
@@ -304,13 +336,17 @@ class KaraokeAudioEngine: ObservableObject {
     }
     
     private func setupAudioEngine() {
-        // Setup audio session with comprehensive Bluetooth support
+        // Setup audio session - FORCE external output only
         do {
             try audioSession.setCategory(.playAndRecord, 
                                        mode: .default,
-                                       options: [.defaultToSpeaker, .allowBluetooth, .allowBluetoothA2DP, .allowAirPlay])
+                                       options: [.allowBluetooth, .allowBluetoothA2DP, .allowAirPlay])
             try audioSession.setActive(true)
-            print("Karaoke audio session setup with Bluetooth support")
+            
+            // Force external output devices only
+            try forceExternalOutputOnly()
+            
+            print("Karaoke audio session setup - external devices only")
         } catch {
             print("Failed to setup karaoke audio session: \(error)")
         }
@@ -326,39 +362,75 @@ class KaraokeAudioEngine: ObservableObject {
         audioEngine.connect(inputNode, to: mainMixer, format: inputFormat)
     }
     
-    func toggleKaraoke() async {
+    private func forceExternalOutputOnly() throws {
+        // Get available audio outputs
+        let availableOutputs = audioSession.availableInputs ?? []
+        let currentRoute = audioSession.currentRoute
+        
+        print("Current audio route outputs: \(currentRoute.outputs.map { $0.portType.rawValue })")
+        
+        // Check if we have any external outputs available
+        let externalOutputs = currentRoute.outputs.filter { output in
+            return output.portType == .bluetoothA2DP || 
+                   output.portType == .bluetoothHFP ||
+                   output.portType == .bluetoothLE ||
+                   output.portType == .airPlay ||
+                   output.portType == .headphones ||
+                   output.portType == .lineOut ||
+                   output.portType == .HDMI ||
+                   output.portType == .usbAudio
+        }
+        
+        hasExternalOutput = !externalOutputs.isEmpty
+        
+        if externalOutputs.isEmpty {
+            // No external outputs available - throw an error to prevent built-in speaker usage
+            print("ERROR: No external output devices detected. Please connect AirPods, headphones, or a Bluetooth speaker.")
+            throw NSError(domain: "KaraokeError", code: 1, userInfo: [NSLocalizedDescriptionKey: "External audio device required. Please connect an external bluetooth speaker."])
+        } else {
+            print("External output devices detected: \(externalOutputs.map { $0.portName })")
+        }
+        
+        // Override the route to prefer external outputs
+        try audioSession.overrideOutputAudioPort(.none) // This removes built-in speaker preference
+    }
+    
+    func toggleKaraoke() async throws {
         // Check if we have permission, request it if we don't
         if !hasPermission {
             await requestMicrophonePermission()
             guard hasPermission else {
-                print("Microphone permission denied")
-                return
+                throw NSError(domain: "KaraokeError", code: 2, userInfo: [NSLocalizedDescriptionKey: "Microphone permission denied"])
             }
         }
         
         if isRecording {
             stopKaraoke()
         } else {
-            startKaraoke()
+            try startKaraoke()
         }
     }
     
-    private func startKaraoke() {
+    private func startKaraoke() throws {
         guard !audioEngine.isRunning else { return }
         
         do {
             // Activate audio session
             try audioSession.setActive(true)
             
+            // Ensure we're still forcing external output
+            try forceExternalOutputOnly()
+            
             // Start the audio engine
             try audioEngine.start()
             
             isRecording = true
-            print("Karaoke mode started - audio pass-through active")
+            print("Karaoke mode started - audio pass-through active (external devices only)")
             
         } catch {
             print("Failed to start karaoke: \(error)")
             isRecording = false
+            throw error
         }
     }
     
