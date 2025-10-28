@@ -315,6 +315,15 @@ class KaraokeAudioEngine: ObservableObject {
             }
         }
     }
+    @Published var backgroundNoiseReduction: Double = 0.5 {
+        didSet {
+            print("🎙️ DEBUG: backgroundNoiseReduction changed from \(oldValue) to \(backgroundNoiseReduction)")
+            // Apply background noise reduction when karaoke is active
+            if isRecording {
+                applyBackgroundNoiseReduction()
+            }
+        }
+    }
     
     private let audioEngine = AVAudioEngine()
     private let playerNode = AVAudioPlayerNode()
@@ -626,6 +635,11 @@ class KaraokeAudioEngine: ObservableObject {
             print("✅ DEBUG: Audio engine started successfully - isRunning=\(audioEngine.isRunning)")
             
             isRecording = true
+            
+            // Apply audio effects
+            applyEchoReduction()
+            applyBackgroundNoiseReduction()
+            
             print("✅ DEBUG: Karaoke mode started - built-in microphone, external speakers only")
             
         } catch {
@@ -683,6 +697,44 @@ class KaraokeAudioEngine: ObservableObject {
         mainMixer.outputVolume = max(0.1, outputVolume) // Minimum 10% volume
         
         print("🔊 DEBUG: Applied echo reduction: \(echoReduction), output volume: \(outputVolume)")
+    }
+    
+    private func applyBackgroundNoiseReduction() {
+        guard audioEngine.isRunning else { return }
+        
+        let inputNode = audioEngine.inputNode
+        let inputFormat = inputNode.outputFormat(forBus: 0)
+        
+        // Remove existing tap if it exists
+        inputNode.removeTap(onBus: 0)
+        
+        // Apply noise reduction by installing a tap that filters audio based on amplitude
+        inputNode.installTap(onBus: 0, bufferSize: 1024, format: inputFormat) { [weak self] buffer, _ in
+            guard let self = self else { return }
+            
+            // Calculate RMS (Root Mean Square) to determine audio level
+            guard let channelData = buffer.floatChannelData?[0] else { return }
+            let frameLength = Int(buffer.frameLength)
+            
+            var rms: Float = 0
+            for i in 0..<frameLength {
+                rms += channelData[i] * channelData[i]
+            }
+            rms = sqrt(rms / Float(frameLength))
+            
+            // Apply noise gate based on background noise reduction setting
+            let noiseGateThreshold = Float(0.01 + (self.backgroundNoiseReduction * 0.05)) // 0.01 to 0.06 threshold
+            
+            if rms < noiseGateThreshold {
+                // Attenuate or mute low-level signals (background noise)
+                let attenuationFactor = Float(0.1 - (self.backgroundNoiseReduction * 0.09)) // 0.01 to 0.1
+                for i in 0..<frameLength {
+                    channelData[i] *= attenuationFactor
+                }
+            }
+        }
+        
+        print("🎙️ DEBUG: Applied background noise reduction: \(backgroundNoiseReduction)")
     }
 }
 

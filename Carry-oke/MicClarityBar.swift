@@ -126,27 +126,62 @@ struct EchoReductionView: View {
     
     var body: some View {
         VStack(spacing: 20) {
-            Text("Echo Reduction")
+            Text("Audio Controls")
                 .font(.system(size: 18, weight: .medium))
                 .foregroundColor(.white.opacity(0.8))
                 .opacity(isVisible ? 1 : 0)
                 .animation(.easeInOut(duration: 0.1), value: isVisible)
             
-            VStack(spacing: 8) {
-                HStack {
-                    Text("Off")
-                        .font(.system(size: 12))
-                        .foregroundColor(.white.opacity(0.6))
+            VStack(spacing: 16) {
+                // Echo Reduction Slider
+                VStack(spacing: 8) {
+                    HStack {
+                        Text("Echo Reduction")
+                            .font(.system(size: 14, weight: .medium))
+                            .foregroundColor(.white.opacity(0.9))
+                        Spacer()
+                    }
                     
-                    Spacer()
+                    HStack {
+                        Text("Off")
+                            .font(.system(size: 12))
+                            .foregroundColor(.white.opacity(0.6))
+                        
+                        Spacer()
+                        
+                        Text("Max")
+                            .font(.system(size: 12))
+                            .foregroundColor(.white.opacity(0.6))
+                    }
                     
-                    Text("Max")
-                        .font(.system(size: 12))
-                        .foregroundColor(.white.opacity(0.6))
+                    Slider(value: $karaokeEngine.echoReduction, in: 0...1)
+                        .accentColor(.white)
                 }
                 
-                Slider(value: $karaokeEngine.echoReduction, in: 0...1)
-                    .accentColor(.white)
+                // Background Noise Reduction Slider
+                VStack(spacing: 8) {
+                    HStack {
+                        Text("Background Noise Reduction")
+                            .font(.system(size: 14, weight: .medium))
+                            .foregroundColor(.white.opacity(0.9))
+                        Spacer()
+                    }
+                    
+                    HStack {
+                        Text("Off")
+                            .font(.system(size: 12))
+                            .foregroundColor(.white.opacity(0.6))
+                        
+                        Spacer()
+                        
+                        Text("Max")
+                            .font(.system(size: 12))
+                            .foregroundColor(.white.opacity(0.6))
+                    }
+                    
+                    Slider(value: $karaokeEngine.backgroundNoiseReduction, in: 0...1)
+                        .accentColor(.white)
+                }
             }
             .opacity(isVisible ? 1 : 0)
             .animation(.easeInOut(duration: 0.1), value: isVisible)
