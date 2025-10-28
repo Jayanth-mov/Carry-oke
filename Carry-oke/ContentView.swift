@@ -41,7 +41,7 @@ struct ContentView: View {
         }
         .ignoresSafeArea()
         .sheet(isPresented: $showingSettings) {
-            SettingsView()
+            SettingsView(karaokeEngine: karaokeEngine)
         }
     }
 }
@@ -159,6 +159,7 @@ struct MicrophoneButton: View {
         }, perform: {})
         .task {
             await karaokeEngine.requestMicrophonePermission()
+            karaokeEngine.refreshExternalOutputStatus()
         }
         .alert("External Audio Device Required", isPresented: $showingAlert) {
             Button("OK") { }
@@ -293,12 +294,23 @@ class KaraokeAudioEngine: ObservableObject {
     @Published var isRecording = false
     @Published var hasPermission = false
     @Published var hasExternalOutput = false
+    @Published var isMicrophoneInitialized = false
     
     private let audioEngine = AVAudioEngine()
     private let playerNode = AVAudioPlayerNode()
     private var audioSession = AVAudioSession.sharedInstance()
     
     init() {
+        // Delay audio engine setup to avoid initialization issues
+        Task {
+            // Small delay to ensure the app is fully loaded
+            try? await Task.sleep(nanoseconds: 500_000_000) // 0.5 seconds
+            await setupAudioEngineAsync()
+        }
+    }
+    
+    @MainActor
+    private func setupAudioEngineAsync() async {
         setupAudioEngine()
     }
     
@@ -320,8 +332,16 @@ class KaraokeAudioEngine: ObservableObject {
         switch audioSession.recordPermission {
         case .granted:
             hasPermission = true
+            // Check if microphone is initialized
+            do {
+                try forceBuiltInMicrophoneOnly()
+            } catch {
+                print("Failed to initialize built-in microphone: \(error)")
+                isMicrophoneInitialized = false
+            }
         case .denied:
             hasPermission = false
+            isMicrophoneInitialized = false
             print("Microphone permission denied. Please enable in Settings > Privacy & Security > Microphone")
         case .undetermined:
             let granted = await withCheckedContinuation { continuation in
@@ -330,41 +350,127 @@ class KaraokeAudioEngine: ObservableObject {
                 }
             }
             hasPermission = granted
+            if granted {
+                // Try to initialize microphone
+                do {
+                    try forceBuiltInMicrophoneOnly()
+                } catch {
+                    print("Failed to initialize built-in microphone: \(error)")
+                    isMicrophoneInitialized = false
+                }
+            } else {
+                isMicrophoneInitialized = false
+            }
         @unknown default:
             hasPermission = false
+            isMicrophoneInitialized = false
         }
     }
     
     private func setupAudioEngine() {
-        // Setup audio session - FORCE external output only
+        // Setup audio session - FORCE external output only, built-in microphone only
         do {
             try audioSession.setCategory(.playAndRecord, 
                                        mode: .default,
                                        options: [.allowBluetooth, .allowBluetoothA2DP, .allowAirPlay])
+            
+            // Set preferred sample rate to avoid format issues
+            try audioSession.setPreferredSampleRate(44100.0)
+            
+            // Force built-in microphone only
+            try forceBuiltInMicrophoneOnly()
+            
             try audioSession.setActive(true)
             
             // Force external output devices only
             try forceExternalOutputOnly()
             
-            print("Karaoke audio session setup - external devices only")
+            print("Karaoke audio session setup - built-in microphone, external speakers only")
         } catch {
             print("Failed to setup karaoke audio session: \(error)")
+            return
         }
+        
+        // Setup audio engine with proper format handling
+        setupAudioEngineConnections()
+    }
+    
+    private func setupAudioEngineConnections() {
+        // Stop and reset the audio engine first
+        if audioEngine.isRunning {
+            audioEngine.stop()
+        }
+        audioEngine.reset()
         
         // Get the input node (microphone)
         let inputNode = audioEngine.inputNode
-        let inputFormat = inputNode.outputFormat(forBus: 0)
         
         // Get the main mixer node (output)
         let mainMixer = audioEngine.mainMixerNode
         
-        // Connect input directly to output (pass-through)
-        audioEngine.connect(inputNode, to: mainMixer, format: inputFormat)
+        // Create a compatible format for the connection
+        // Use the input node's output format, but ensure it's valid
+        let inputFormat = inputNode.outputFormat(forBus: 0)
+        
+        print("Input format: \(inputFormat)")
+        print("Sample rate: \(inputFormat.sampleRate), channels: \(inputFormat.channelCount)")
+        
+        // Validate the format before connecting
+        guard inputFormat.sampleRate > 0 && inputFormat.channelCount > 0 else {
+            print("ERROR: Invalid input format detected")
+            return
+        }
+        
+        do {
+            // Connect input directly to output (pass-through)
+            audioEngine.connect(inputNode, to: mainMixer, format: inputFormat)
+            print("Successfully connected audio nodes with format: \(inputFormat)")
+        } catch {
+            print("Failed to connect audio nodes: \(error)")
+            
+            // Fallback: try with a standard format
+            let standardFormat = AVAudioFormat(standardFormatWithSampleRate: 44100.0, channels: 1)
+            if let standardFormat = standardFormat {
+                do {
+                    audioEngine.connect(inputNode, to: mainMixer, format: standardFormat)
+                    print("Successfully connected audio nodes with standard format: \(standardFormat)")
+                } catch {
+                    print("Failed to connect with standard format: \(error)")
+                }
+            }
+        }
+    }
+    
+    private func forceBuiltInMicrophoneOnly() throws {
+        // Get available inputs and find the built-in microphone
+        let availableInputs = audioSession.availableInputs ?? []
+        
+        print("Available input devices: \(availableInputs.map { "\($0.portName) (\($0.portType.rawValue))" })")
+        
+        // Find the built-in microphone
+        let builtInMic = availableInputs.first { input in
+            return input.portType == .builtInMic
+        }
+        
+        if let builtInMic = builtInMic {
+            try audioSession.setPreferredInput(builtInMic)
+            isMicrophoneInitialized = true
+            print("Successfully set preferred input to built-in microphone: \(builtInMic.portName)")
+        } else {
+            print("Warning: Built-in microphone not found in available inputs")
+            // Still try to set the first available input as fallback
+            if let firstInput = availableInputs.first {
+                try audioSession.setPreferredInput(firstInput)
+                isMicrophoneInitialized = true
+                print("Fallback: Set preferred input to: \(firstInput.portName)")
+            } else {
+                isMicrophoneInitialized = false
+                print("Error: No input devices available")
+            }
+        }
     }
     
     private func forceExternalOutputOnly() throws {
-        // Get available audio outputs
-        let availableOutputs = audioSession.availableInputs ?? []
         let currentRoute = audioSession.currentRoute
         
         print("Current audio route outputs: \(currentRoute.outputs.map { $0.portType.rawValue })")
@@ -395,6 +501,30 @@ class KaraokeAudioEngine: ObservableObject {
         try audioSession.overrideOutputAudioPort(.none) // This removes built-in speaker preference
     }
     
+    func refreshExternalOutputStatus() {
+        let currentRoute = audioSession.currentRoute
+        
+        // Check if we have any external outputs available
+        let externalOutputs = currentRoute.outputs.filter { output in
+            return output.portType == .bluetoothA2DP || 
+                   output.portType == .bluetoothHFP ||
+                   output.portType == .bluetoothLE ||
+                   output.portType == .airPlay ||
+                   output.portType == .headphones ||
+                   output.portType == .lineOut ||
+                   output.portType == .HDMI ||
+                   output.portType == .usbAudio
+        }
+        
+        hasExternalOutput = !externalOutputs.isEmpty
+        
+        if !externalOutputs.isEmpty {
+            print("External output devices detected: \(externalOutputs.map { $0.portName })")
+        } else {
+            print("No external output devices detected")
+        }
+    }
+    
     func toggleKaraoke() async throws {
         // Check if we have permission, request it if we don't
         if !hasPermission {
@@ -418,14 +548,23 @@ class KaraokeAudioEngine: ObservableObject {
             // Activate audio session
             try audioSession.setActive(true)
             
+            // Ensure built-in microphone is selected
+            try forceBuiltInMicrophoneOnly()
+            
             // Ensure we're still forcing external output
             try forceExternalOutputOnly()
+            
+            // Re-setup audio engine connections to ensure they're valid
+            setupAudioEngineConnections()
+            
+            // Prepare the audio engine before starting
+            audioEngine.prepare()
             
             // Start the audio engine
             try audioEngine.start()
             
             isRecording = true
-            print("Karaoke mode started - audio pass-through active (external devices only)")
+            print("Karaoke mode started - built-in microphone, external speakers only")
             
         } catch {
             print("Failed to start karaoke: \(error)")
