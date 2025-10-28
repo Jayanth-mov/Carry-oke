@@ -1,5 +1,5 @@
 //
-//  PlaylistBar.swift
+//  MicClarityBar.swift
 //  Carry-oke
 //
 //  Created by Jayanth Annabhimoju on 10/27/25.
@@ -7,60 +7,68 @@
 
 import SwiftUI
 
-// MARK: - Playlist Bar (Liquid Glass)
-struct PlaylistBar: View {
+// MARK: - Microphone Clarity Bar (Liquid Glass)
+struct MicClarityBar: View {
     @State private var isExpanded = false
     
     var body: some View {
         VStack(spacing: 0) {
             if isExpanded {
-                ExpandedPlaylistView(onClose: collapsePlaylist)
+                ExpandedMicClarityView(onClose: collapseMicClarity)
                     .transition(.asymmetric(
                         insertion: .move(edge: .top).combined(with: .opacity),
                         removal: .move(edge: .top).combined(with: .opacity)
                     ))
             }
             
-            // Collapsed Playlist Bar
-            PlaylistBarCollapsed()
+            // Collapsed Mic Clarity Bar
+            MicClarityBarCollapsed(isExpanded: isExpanded)
                 .onTapGesture {
-                    expandPlaylist()
+                    toggleExpansion()
                 }
         }
-        .modifier(GlassEffectModifier(tintColor: Color(hex: "F87060").opacity(0.2), shape: .rect(cornerRadius: isExpanded ? 20 : 25)))
+        .modifier(GlassEffectModifier(tintColor: Color(hex: "fff7fd").opacity(0.2), shape: .rect(cornerRadius: isExpanded ? 20 : 25)))
     }
     
-    private func expandPlaylist() {
-        withAnimation(.spring(response: 0.6, dampingFraction: 0.8)) {
+    private func toggleExpansion() {
+        if isExpanded {
+            collapseMicClarity()
+        } else {
+            expandMicClarity()
+        }
+    }
+    
+    private func expandMicClarity() {
+        withAnimation(.spring(response: 0.2, dampingFraction: 0.8)) {
             isExpanded = true
         }
     }
     
-    private func collapsePlaylist() {
-        withAnimation(.spring(response: 0.5, dampingFraction: 0.8)) {
+    private func collapseMicClarity() {
+        withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
             isExpanded = false
         }
     }
 }
 
-// MARK: - Collapsed Playlist Bar
-struct PlaylistBarCollapsed: View {
+// MARK: - Collapsed Mic Clarity Bar
+struct MicClarityBarCollapsed: View {
+    let isExpanded: Bool
+    
     var body: some View {
         HStack {
             VStack(alignment: .leading, spacing: 2) {
-                Text("Playlist is empty.")
+                Text("Microphone Clarity")
                     .font(.system(size: 16, weight: .medium))
                     .foregroundColor(.white)
             }
             
             Spacer()
             
-            HStack(spacing: 16) {
-                PlayButton(systemName: "play.fill")
-                    .allowsHitTesting(false) // Disable hit testing so taps pass through
-                PlayButton(systemName: "forward.end.fill")
-                    .allowsHitTesting(false) // Disable hit testing so taps pass through
-            }
+            // Arrow icon changes based on expansion state
+            Image(systemName: isExpanded ? "chevron.down" : "chevron.up")
+                .font(.system(size: 14, weight: .medium))
+                .foregroundColor(.white.opacity(0.6))
         }
         .padding(.horizontal, 20)
         .padding(.vertical, 16)
@@ -68,30 +76,26 @@ struct PlaylistBarCollapsed: View {
     }
 }
 
-// MARK: - Expanded Playlist View
-struct ExpandedPlaylistView: View {
+// MARK: - Expanded Mic Clarity View
+struct ExpandedMicClarityView: View {
     let onClose: () -> Void
     
     var body: some View {
         VStack(spacing: 0) {
-            // Header with close button and add button
-            ExpandedPlaylistHeader(onClose: onClose)
+            // Header with close button
+            ExpandedMicClarityHeader(onClose: onClose)
             
-            // Queue section
-            PlaylistQueueView()
-                .padding(.horizontal, 20)
-            
-            // Current playing section (if needed)
-            CurrentPlayingSection()
+            // Empty content area (for future additions)
+            MicClarityContentView()
                 .padding(.horizontal, 20)
                 .padding(.bottom, 20)
         }
-        .frame(maxHeight: 400) // Limit the maximum height
+        .frame(maxHeight: 300) // Limit the maximum height
     }
 }
 
-// MARK: - Expanded Playlist Header
-struct ExpandedPlaylistHeader: View {
+// MARK: - Expanded Mic Clarity Header
+struct ExpandedMicClarityHeader: View {
     let onClose: () -> Void
     
     var body: some View {
@@ -105,21 +109,16 @@ struct ExpandedPlaylistHeader: View {
             
             Spacer()
             
-            Text("Queue")
+            Text("Microphone Clarity")
                 .font(.system(size: 18, weight: .semibold))
                 .foregroundColor(.white)
             
             Spacer()
             
-            Button(action: {
-                // Add song action (dummy for now)
-                print("Add song tapped")
-            }) {
-                Image(systemName: "plus")
-                    .font(.system(size: 18, weight: .medium))
-                    .foregroundColor(.white)
-                    .frame(width: 32, height: 32)
-            }
+            // Placeholder for future action button
+            Rectangle()
+                .fill(Color.clear)
+                .frame(width: 32, height: 32)
         }
         .padding(.horizontal, 20)
         .padding(.vertical, 16)
@@ -130,41 +129,19 @@ struct ExpandedPlaylistHeader: View {
     }
 }
 
-// MARK: - Playlist Queue View
-struct PlaylistQueueView: View {
-    @State private var queueItems: [QueueItem] = []
-    
-    var body: some View {
-        VStack(spacing: 12) {
-            if queueItems.isEmpty {
-                EmptyQueueView()
-            } else {
-                ScrollView {
-                    LazyVStack(spacing: 8) {
-                        ForEach(queueItems) { item in
-                            QueueItemRow(item: item)
-                        }
-                    }
-                }
-            }
-        }
-        .frame(maxHeight: 250)
-    }
-}
-
-// MARK: - Empty Queue View
-struct EmptyQueueView: View {
+// MARK: - Mic Clarity Content View
+struct MicClarityContentView: View {
     var body: some View {
         VStack(spacing: 16) {
-            Image(systemName: "music.note.list")
+            Image(systemName: "mic.badge.plus")
                 .font(.system(size: 48))
                 .foregroundColor(.white.opacity(0.4))
             
-            Text("Queue is Empty")
+            Text("Coming Soon")
                 .font(.system(size: 18, weight: .medium))
                 .foregroundColor(.white.opacity(0.8))
             
-            Text("Add songs to see them here")
+            Text("Microphone clarity features will be added here")
                 .font(.system(size: 14))
                 .foregroundColor(.white.opacity(0.6))
                 .multilineTextAlignment(.center)
@@ -172,82 +149,6 @@ struct EmptyQueueView: View {
         .frame(maxWidth: .infinity)
         .padding(.vertical, 40)
     }
-}
-
-// MARK: - Queue Item Row
-struct QueueItemRow: View {
-    let item: QueueItem
-    
-    var body: some View {
-        HStack(spacing: 12) {
-            // Album artwork placeholder
-            RoundedRectangle(cornerRadius: 8)
-                .fill(Color.white.opacity(0.2))
-                .frame(width: 44, height: 44)
-                .overlay {
-                    Image(systemName: "music.note")
-                        .font(.system(size: 16))
-                        .foregroundColor(.white.opacity(0.6))
-                }
-            
-            VStack(alignment: .leading, spacing: 2) {
-                Text(item.title)
-                    .font(.system(size: 15, weight: .medium))
-                    .foregroundColor(.white)
-                    .lineLimit(1)
-                
-                Text(item.artist)
-                    .font(.system(size: 13))
-                    .foregroundColor(.white.opacity(0.7))
-                    .lineLimit(1)
-            }
-            
-            Spacer()
-            
-            Button(action: {
-                // Remove from queue action
-                print("Remove \(item.title) from queue")
-            }) {
-                Image(systemName: "minus.circle.fill")
-                    .font(.system(size: 20))
-                    .foregroundColor(.white.opacity(0.6))
-            }
-        }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 8)
-        .background(
-            RoundedRectangle(cornerRadius: 12)
-                .fill(Color.white.opacity(0.05))
-        )
-    }
-}
-
-// MARK: - Current Playing Section
-struct CurrentPlayingSection: View {
-    var body: some View {
-        VStack(spacing: 16) {            
-            // Progress bar (optional)
-            HStack {
-                Text("0:00")
-                    .font(.system(size: 12))
-                    .foregroundColor(.white.opacity(0.6))
-                
-                Spacer()
-                
-                Text("0:00")
-                    .font(.system(size: 12))
-                    .foregroundColor(.white.opacity(0.6))
-            }
-        }
-    }
-}
-
-// MARK: - Queue Item Model
-struct QueueItem: Identifiable {
-    let id = UUID()
-    let title: String
-    let artist: String
-    let duration: TimeInterval
 }
 
 

@@ -32,6 +32,9 @@ struct ContentView: View {
                     
                     Spacer()
                     
+                    MicClarityBar()
+                        .padding(.bottom, 12) // Space between bars
+                    
                     // Playlist Bar
                     PlaylistBar()
                         .padding(.bottom, 34) // Account for safe area
