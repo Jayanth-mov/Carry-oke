@@ -218,7 +218,7 @@ struct OutputDeviceInfoView: View {
         }
         
         if externalOutputs.isEmpty {
-            return "No external devices connected\n(External speakers/headphones required for karaoke)"
+            return "No external devices connected\n(External speakers required for karaoke)"
         } else {
             let deviceNames = externalOutputs.map { $0.portName }.joined(separator: ", ")
             return "Connected: \(deviceNames)"

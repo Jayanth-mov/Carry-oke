@@ -89,7 +89,7 @@ struct ExpandedMicClarityView: View {
                 .padding(.horizontal, 20)
                 .padding(.bottom, 20)
         }
-        .frame(maxHeight: 300) // Limit the maximum height
+        .frame(maxHeight: 275) // Limit the maximum height
     }
 }
 
@@ -130,7 +130,7 @@ struct EchoReductionView: View {
                 .font(.system(size: 18, weight: .medium))
                 .foregroundColor(.white.opacity(0.8))
                 .opacity(isVisible ? 1 : 0)
-                .animation(.easeInOut(duration: 0.1), value: isVisible)
+                .animation(.easeInOut(duration: 0.3), value: isVisible)
             
             VStack(spacing: 16) {
                 // Echo Reduction Slider

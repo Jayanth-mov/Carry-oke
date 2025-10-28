@@ -145,7 +145,7 @@ struct MicrophoneButton: View {
                     .foregroundColor(karaokeEngine.isRecording ? .red : .white)
                 
                 if !karaokeEngine.hasExternalOutput && !karaokeEngine.isRecording {
-                    Text("Connect AirPods or\nBluetooth Speaker")
+                    Text("Connect a\nBluetooth Speaker")
                         .font(.system(size: 12, weight: .medium))
                         .foregroundColor(.white.opacity(0.7))
                         .multilineTextAlignment(.center)
@@ -532,8 +532,8 @@ class KaraokeAudioEngine: ObservableObject {
         
         if externalOutputs.isEmpty {
             // No external outputs available - throw an error to prevent built-in speaker usage
-            print("❌ DEBUG: No external output devices detected. Please connect AirPods, headphones, or a Bluetooth speaker.")
-            throw NSError(domain: "KaraokeError", code: 1, userInfo: [NSLocalizedDescriptionKey: "External audio device required. Please connect an external bluetooth speaker."])
+            print("❌ DEBUG: No external output devices detected. Please connect a Bluetooth speaker.")
+            throw NSError(domain: "KaraokeError", code: 1, userInfo: [NSLocalizedDescriptionKey: "Please connect an external bluetooth speaker."])
         } else {
             print("✅ DEBUG: External output devices detected: \(externalOutputs.map { $0.portName })")
         }
