@@ -14,21 +14,22 @@ struct MicClarityBar: View {
     
     var body: some View {
         VStack(spacing: 0) {
-            if isExpanded {
-                ExpandedMicClarityView(onClose: collapseMicClarity, karaokeEngine: karaokeEngine)
-                    .transition(.asymmetric(
-                        insertion: .move(edge: .top).combined(with: .opacity),
-                        removal: .move(edge: .top).combined(with: .opacity)
-                    ))
-            }
-            
-            // Collapsed Mic Clarity Bar
+            // Collapsed Mic Clarity Bar - now at top
             MicClarityBarCollapsed(isExpanded: isExpanded)
                 .onTapGesture {
                     toggleExpansion()
                 }
+            
+            if isExpanded {
+                ExpandedMicClarityView(onClose: collapseMicClarity, karaokeEngine: karaokeEngine)
+                    .offset(y: isExpanded ? 0 : -10) // Start from 50 points above
+                    .transition(.asymmetric(
+                        insertion: .scale(scale: 0.8, anchor: .top).combined(with: .opacity),
+                        removal: .scale(scale: 0.8, anchor: .top).combined(with: .opacity)
+                    ))
+            }
         }
-        .modifier(GlassEffectModifier(tintColor: Color(hex: "fff7fd").opacity(0.2), shape: .rect(cornerRadius: isExpanded ? 20 : 25)))
+        .modifier(GlassEffectModifier(tintColor: Color(hex: "000000").opacity(0.6), shape: .rect(cornerRadius: isExpanded ? 20 : 25)))
     }
     
     private func toggleExpansion() {
@@ -40,7 +41,7 @@ struct MicClarityBar: View {
     }
     
     private func expandMicClarity() {
-        withAnimation(.spring(response: 0.2, dampingFraction: 0.8)) {
+        withAnimation(.spring(response: 0.4, dampingFraction: 0.6, blendDuration: 0.1)) {
             isExpanded = true
         }
     }
@@ -59,15 +60,15 @@ struct MicClarityBarCollapsed: View {
     var body: some View {
         HStack {
             VStack(alignment: .leading, spacing: 2) {
-                Text("Microphone Clarity")
+                Text("Audio Mixer")
                     .font(.system(size: 16, weight: .medium))
                     .foregroundColor(.white)
             }
             
             Spacer()
             
-            // Arrow icon changes based on expansion state
-            Image(systemName: isExpanded ? "chevron.down" : "chevron.up")
+            // Arrow icon changes based on expansion state - flipped for downward expansion
+            Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
                 .font(.system(size: 14, weight: .medium))
                 .foregroundColor(.white.opacity(0.6))
         }
@@ -101,8 +102,8 @@ struct MicClarityContentView: View {
     var body: some View {
         VStack(spacing: 16) {
             if karaokeEngine.isMicrophoneInitialized {
-                // Show echo reduction controls when microphone is initialized
-                EchoReductionView(karaokeEngine: karaokeEngine, isVisible: $isVisible)
+                // Show audio controls when microphone is initialized
+                AudioControlsView(karaokeEngine: karaokeEngine, isVisible: $isVisible)
             } else {
                 // Show unavailable message when microphone is not initialized
                 UnavailableView(isVisible: $isVisible)
@@ -119,42 +120,36 @@ struct MicClarityContentView: View {
     }
 }
 
-// MARK: - Echo Reduction View
-struct EchoReductionView: View {
+// MARK: - Audio Controls View
+struct AudioControlsView: View {
     @ObservedObject var karaokeEngine: KaraokeAudioEngine
     @Binding var isVisible: Bool
     
     var body: some View {
         VStack(spacing: 20) {
-            Text("Audio Controls")
-                .font(.system(size: 18, weight: .medium))
-                .foregroundColor(.white.opacity(0.8))
-                .opacity(isVisible ? 1 : 0)
-                .animation(.easeInOut(duration: 0.3), value: isVisible)
-            
             VStack(spacing: 16) {
-                // Echo Reduction Slider
+                // Microphone Volume Slider
                 VStack(spacing: 8) {
                     HStack {
-                        Text("Echo Reduction")
+                        Text("Microphone Volume")
                             .font(.system(size: 14, weight: .medium))
                             .foregroundColor(.white.opacity(0.9))
                         Spacer()
                     }
                     
                     HStack {
-                        Text("Off")
+                        Text("Low")
                             .font(.system(size: 12))
                             .foregroundColor(.white.opacity(0.6))
                         
                         Spacer()
                         
-                        Text("Max")
+                        Text("High")
                             .font(.system(size: 12))
                             .foregroundColor(.white.opacity(0.6))
                     }
                     
-                    Slider(value: $karaokeEngine.echoReduction, in: 0...1)
+                    Slider(value: $karaokeEngine.microphoneVolume, in: 0...2)
                         .accentColor(.white)
                 }
                 
@@ -179,7 +174,7 @@ struct EchoReductionView: View {
                             .foregroundColor(.white.opacity(0.6))
                     }
                     
-                    Slider(value: $karaokeEngine.backgroundNoiseReduction, in: 0...1)
+                    Slider(value: $karaokeEngine.backgroundNoiseReduction, in: 0...2)
                         .accentColor(.white)
                 }
             }

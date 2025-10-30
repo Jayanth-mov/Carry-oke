@@ -25,15 +25,16 @@ struct ContentView: View {
                     HeaderView(showingSettings: $showingSettings, isKaraokeActive: karaokeEngine.isRecording)
                         .padding(.top, 60)
                     
+                    // Microphone Clarity Bar - moved to top
+                    MicClarityBar(karaokeEngine: karaokeEngine)
+                        .padding(.top, 12) // Space after header
+                    
                     Spacer()
                     
                     // Main Microphone Button
                     MicrophoneButton(karaokeEngine: karaokeEngine, showingSettings: $showingSettings)
                     
                     Spacer()
-                    
-                    MicClarityBar(karaokeEngine: karaokeEngine)
-                        .padding(.bottom, 12) // Space between bars
                     
                     // Playlist Bar
                     PlaylistBar()
@@ -143,6 +144,7 @@ struct MicrophoneButton: View {
                 Image(systemName: karaokeEngine.isRecording ? "mic.fill" : "mic.fill")
                     .font(.system(size: 60, weight: .medium))
                     .foregroundColor(karaokeEngine.isRecording ? .red : .white)
+                    .rotationEffect(.degrees(180))
                 
                 if !karaokeEngine.hasExternalOutput && !karaokeEngine.isRecording {
                     Text("Connect a\nBluetooth Speaker")
@@ -306,12 +308,12 @@ class KaraokeAudioEngine: ObservableObject {
             print("🎙️ DEBUG: isMicrophoneInitialized changed from \(oldValue) to \(isMicrophoneInitialized)")
         }
     }
-    @Published var echoReduction: Double = 0.5 {
+    @Published var microphoneVolume: Double = 1.0 {
         didSet {
-            print("🔊 DEBUG: echoReduction changed from \(oldValue) to \(echoReduction)")
-            // Apply echo reduction when karaoke is active
+            print("🎙️ DEBUG: microphoneVolume changed from \(oldValue) to \(microphoneVolume)")
+            // Apply microphone volume when karaoke is active
             if isRecording {
-                applyEchoReduction()
+                applyMicrophoneVolume()
             }
         }
     }
@@ -435,16 +437,17 @@ class KaraokeAudioEngine: ObservableObject {
         print("🔄 DEBUG: Resetting audio engine...")
         audioEngine.reset()
         
-        // Get the input node (microphone)
-        let inputNode = audioEngine.inputNode
-        print("🎙️ DEBUG: Got input node")
+        // Attach the player node to the engine
+        audioEngine.attach(playerNode)
         
-        // Get the main mixer node (output)
+        // Get the input node (microphone) and main mixer node (output)
+        let inputNode = audioEngine.inputNode
         let mainMixer = audioEngine.mainMixerNode
+        
+        print("🎙️ DEBUG: Got input node and attached player node")
         print("🔊 DEBUG: Got main mixer node")
         
         // Create a compatible format for the connection
-        // Use the input node's output format, but ensure it's valid
         let inputFormat = inputNode.outputFormat(forBus: 0)
         
         print("📊 DEBUG: Input format: \(inputFormat)")
@@ -457,20 +460,19 @@ class KaraokeAudioEngine: ObservableObject {
         }
         
         do {
-            // Connect input directly to output (pass-through)
-            print("🔗 DEBUG: Connecting input to mixer...")
-            audioEngine.connect(inputNode, to: mainMixer, format: inputFormat)
-            print("✅ DEBUG: Successfully connected audio nodes with format: \(inputFormat)")
+            // Connect the player node to the mixer (this will play our processed audio)
+            audioEngine.connect(playerNode, to: mainMixer, format: inputFormat)
+            print("✅ DEBUG: Successfully connected player node to mixer with format: \(inputFormat)")
         } catch {
-            print("❌ DEBUG: Failed to connect audio nodes: \(error)")
+            print("❌ DEBUG: Failed to connect player node to mixer: \(error)")
             
             // Fallback: try with a standard format
             print("🔄 DEBUG: Trying fallback with standard format...")
             let standardFormat = AVAudioFormat(standardFormatWithSampleRate: 44100.0, channels: 1)
             if let standardFormat = standardFormat {
                 do {
-                    audioEngine.connect(inputNode, to: mainMixer, format: standardFormat)
-                    print("✅ DEBUG: Successfully connected audio nodes with standard format: \(standardFormat)")
+                    audioEngine.connect(playerNode, to: mainMixer, format: standardFormat)
+                    print("✅ DEBUG: Successfully connected player node with standard format: \(standardFormat)")
                 } catch {
                     print("❌ DEBUG: Failed to connect with standard format: \(error)")
                 }
@@ -637,7 +639,7 @@ class KaraokeAudioEngine: ObservableObject {
             isRecording = true
             
             // Apply audio effects
-            applyEchoReduction()
+            applyMicrophoneVolume()
             applyBackgroundNoiseReduction()
             
             print("✅ DEBUG: Karaoke mode started - built-in microphone, external speakers only")
@@ -667,6 +669,15 @@ class KaraokeAudioEngine: ObservableObject {
             return 
         }
         
+        // Stop the player node first
+        if playerNode.isPlaying {
+            playerNode.stop()
+        }
+        
+        // Remove any audio taps
+        let inputNode = audioEngine.inputNode
+        inputNode.removeTap(onBus: 0)
+        
         // Stop the audio engine
         print("🛑 DEBUG: Stopping audio engine...")
         audioEngine.stop()
@@ -685,57 +696,68 @@ class KaraokeAudioEngine: ObservableObject {
         print("✅ DEBUG: Karaoke mode stopped - Final state: isRecording=\(isRecording), audioEngine.isRunning=\(audioEngine.isRunning)")
     }
     
-    private func applyEchoReduction() {
+    private func applyMicrophoneVolume() {
         guard audioEngine.isRunning else { return }
         
-        // Get the main mixer node to adjust output volume
-        let mainMixer = audioEngine.mainMixerNode
-        
-        // Apply echo reduction by adjusting the output volume
-        // Higher echo reduction = lower output volume to reduce feedback
-        let outputVolume = Float(1.0 - (echoReduction * 0.5)) // Reduce volume by up to 50%
-        mainMixer.outputVolume = max(0.1, outputVolume) // Minimum 10% volume
-        
-        print("🔊 DEBUG: Applied echo reduction: \(echoReduction), output volume: \(outputVolume)")
-    }
-    
-    private func applyBackgroundNoiseReduction() {
-        guard audioEngine.isRunning else { return }
-        
+        // Get the input node and format
         let inputNode = audioEngine.inputNode
         let inputFormat = inputNode.outputFormat(forBus: 0)
         
         // Remove existing tap if it exists
         inputNode.removeTap(onBus: 0)
         
-        // Apply noise reduction by installing a tap that filters audio based on amplitude
+        // Start the player node if it's not already playing
+        if !playerNode.isPlaying {
+            playerNode.play()
+        }
+        
+        // Install tap to capture, process, and route audio through player node
         inputNode.installTap(onBus: 0, bufferSize: 1024, format: inputFormat) { [weak self] buffer, _ in
             guard let self = self else { return }
             
-            // Calculate RMS (Root Mean Square) to determine audio level
+            // Get the audio data
             guard let channelData = buffer.floatChannelData?[0] else { return }
             let frameLength = Int(buffer.frameLength)
             
+            // Calculate RMS for noise gate
             var rms: Float = 0
             for i in 0..<frameLength {
                 rms += channelData[i] * channelData[i]
             }
             rms = sqrt(rms / Float(frameLength))
             
-            // Apply noise gate based on background noise reduction setting
-            let noiseGateThreshold = Float(0.01 + (self.backgroundNoiseReduction * 0.05)) // 0.01 to 0.06 threshold
+            // Apply background noise reduction (noise gate)
+            let noiseGateThreshold = Float(0.01 + (self.backgroundNoiseReduction * 0.05))
+            var attenuationFactor: Float = 1.0
             
             if rms < noiseGateThreshold {
-                // Attenuate or mute low-level signals (background noise)
-                let attenuationFactor = Float(0.1 - (self.backgroundNoiseReduction * 0.09)) // 0.01 to 0.1
-                for i in 0..<frameLength {
-                    channelData[i] *= attenuationFactor
-                }
+                attenuationFactor = Float(0.1 - (self.backgroundNoiseReduction * 0.09))
+                attenuationFactor = max(0.01, attenuationFactor) // Ensure it's not negative
             }
+            
+            // Apply volume and noise reduction to each sample
+            let volumeMultiplier = Float(self.microphoneVolume) * attenuationFactor
+            
+            for i in 0..<frameLength {
+                channelData[i] *= volumeMultiplier
+                
+                // Prevent clipping by limiting to [-1.0, 1.0]
+                channelData[i] = max(-1.0, min(1.0, channelData[i]))
+            }
+            
+            // Schedule the processed buffer to play through the player node
+            self.playerNode.scheduleBuffer(buffer, completionHandler: nil)
         }
         
-        print("🎙️ DEBUG: Applied background noise reduction: \(backgroundNoiseReduction)")
+        print("🎙️ DEBUG: Applied microphone volume: \(microphoneVolume) - Audio routing through player node")
     }
+    
+    private func applyBackgroundNoiseReduction() {
+        // Background noise reduction is now handled in applyMicrophoneVolume()
+        // This function is kept for compatibility but does nothing
+        print("🎙️ DEBUG: Background noise reduction applied via microphone volume function")
+    }
+
 }
 
 #Preview {

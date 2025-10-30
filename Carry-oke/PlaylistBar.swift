@@ -10,22 +10,28 @@ import SwiftUI
 // MARK: - Playlist Bar (Liquid Glass)
 struct PlaylistBar: View {
     @State private var isShowingQueue = false
+    @State private var isYouTubePlayer = true
     
     var body: some View {
         // Collapsed Playlist Bar
-        PlaylistBarCollapsed()
+        PlaylistBarCollapsed(isYouTubePlayer: isYouTubePlayer)
             .onTapGesture {
                 isShowingQueue = true
             }
             .modifier(GlassEffectModifier(tintColor: Color(hex: "F87060").opacity(0.2), shape: .rect(cornerRadius: 25)))
             .sheet(isPresented: $isShowingQueue) {
-                QueueSheetView()
+                QueueSheetView(isYouTubePlayer: $isYouTubePlayer)
+                    .presentationDetents(isYouTubePlayer ? [.fraction(0.5)] : [.large])
+                    .presentationDragIndicator(.visible)
+                    .presentationBackgroundInteraction(isYouTubePlayer ? .enabled : .automatic)
             }
     }
 }
 
 // MARK: - Collapsed Playlist Bar
 struct PlaylistBarCollapsed: View {
+    let isYouTubePlayer: Bool
+    
     var body: some View {
         HStack {
             VStack(alignment: .leading, spacing: 2) {
@@ -53,6 +59,7 @@ struct PlaylistBarCollapsed: View {
 struct QueueSheetView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var queueItems: [QueueItem] = []
+    @Binding var isYouTubePlayer: Bool
     
     var body: some View {
         NavigationView {
@@ -82,51 +89,58 @@ struct QueueSheetView: View {
                 
                 // Content
                 VStack(spacing: 0) {
-                    HStack {
-                        Text("Currently Playing:")
-                            .font(.system(size: 18, weight: .medium))
-                            .padding(.bottom, 10)
+                    // Only show "Currently Playing" section in Local Player mode
+                    if !isYouTubePlayer {
+                        HStack {
+                            Text("Currently Playing:")
+                                .font(.system(size: 18, weight: .medium))
+                                .padding(.bottom, 10)
+                                .padding(.horizontal, 20)
+                            Spacer()
+                        }
+                        // Mini player bar at top
+                        MiniPlayerBar()
                             .padding(.horizontal, 20)
-                        Spacer()
+                            .padding(.top, 0)
                     }
-                    // Mini player bar at top
-                    MiniPlayerBar()
-                        .padding(.horizontal, 20)
-                        .padding(.top, 0)
+                    
                     HStack {
                         Text("Queue")
                             .font(Font.largeTitle.bold())
                             .padding(.horizontal, 20)
-                            .padding(.vertical, 10)
+                            .padding(.vertical, 40)
                         Spacer()
                     }
                     
-                        
-                    
-                    // Queue content
-                    if queueItems.isEmpty {
-                        Spacer()
-                        EmptyQueueView()
-                        Spacer()
+                    // Content based on player mode
+                    if isYouTubePlayer {
+                        // YouTube Player Content
+                        YouTubePlayerPlaceholder()
                     } else {
-                        ScrollView {
-                            LazyVStack(spacing: 8) {
-                                ForEach(queueItems) { item in
-                                    QueueItemRow(item: item)
-                                        .padding(.horizontal, 20)
-                                    
-//                                    This hidden code is supposed to be for the song
-//                                    HStack(spacing: 20) {
-//                                        PlayButton(systemName: "backward.end.fill", size: 20)
-//                                        PlayButton(systemName: "play.fill", size: 24)
-//                                        PlayButton(systemName: "forward.end.fill", size: 20)
-//                                    }
+                        // Queue content (existing)
+                        if queueItems.isEmpty {
+                            Spacer()
+                            EmptyQueueView()
+                            Spacer()
+                        } else {
+                            ScrollView {
+                                LazyVStack(spacing: 8) {
+                                    ForEach(queueItems) { item in
+                                        QueueItemRow(item: item)
+                                            .padding(.horizontal, 20)
+                                        
+    //                                    This hidden code is supposed to be for the song
+    //                                    HStack(spacing: 20) {
+    //                                        PlayButton(systemName: "backward.end.fill", size: 20)
+    //                                        PlayButton(systemName: "play.fill", size: 24)
+    //                                        PlayButton(systemName: "forward.end.fill", size: 20)
+    //                                    }
+                                    }
                                 }
+                                .padding(.top, 20)
                             }
-                            .padding(.top, 20)
                         }
                     }
-                    
                 }
             }
             .toolbar {
@@ -139,13 +153,36 @@ struct QueueSheetView: View {
                 }
                 
                 ToolbarItem(placement: .navigationBarTrailing) {
-                    Button(action: {
-                        // Add song action (dummy for now)
-                        print("Add song tapped")
-                    }) {
-                        Image(systemName: "plus")
-                            .font(.system(size: 18, weight: .medium))
-                            .foregroundColor(.white)
+                    HStack(spacing: 12) {
+                        // YouTube/Local Player Toggle Button
+                        Button(action: {
+                            withAnimation(.easeInOut(duration: 0.2)) {
+                                isYouTubePlayer.toggle()
+                            }
+                        }) {
+                            Text(isYouTubePlayer ? "YouTube Player" : "Local Player")
+                                .font(.system(size: 14, weight: .medium))
+                                .foregroundColor(.white)
+                                .padding(.horizontal, 12)
+                                .padding(.vertical, 6)
+                                .background(
+                                    RoundedRectangle(cornerRadius: 16)
+                                        .fill(Color.white.opacity(0.2))
+                                )
+                        }
+                        
+                        // Plus Button - only show when NOT in YouTube Player mode
+                        if !isYouTubePlayer {
+                            Button(action: {
+                                // Add song action (dummy for now)
+                                print("Add song tapped")
+                            }) {
+                                Image(systemName: "plus")
+                                    .font(.system(size: 18, weight: .medium))
+                                    .foregroundColor(.white)
+                            }
+                            .transition(.opacity.combined(with: .scale))
+                        }
                     }
                 }
             }
@@ -250,6 +287,39 @@ struct QueueItemRow: View {
 }
 
 
+
+// MARK: - YouTube Player Placeholder
+struct YouTubePlayerPlaceholder: View {
+    var body: some View {
+        VStack(spacing: 20) {
+            Spacer()
+            
+            // YouTube icon placeholder
+            RoundedRectangle(cornerRadius: 12)
+                .fill(Color.white.opacity(0.1))
+                .frame(height: 200)
+                .overlay {
+                    VStack(spacing: 12) {
+                        Image(systemName: "play.rectangle.fill")
+                            .font(.system(size: 48))
+                            .foregroundColor(.white.opacity(0.4))
+                        
+                        Text("[YouTube Placeholder]")
+                            .font(.system(size: 18, weight: .medium))
+                            .foregroundColor(.white.opacity(0.8))
+                        
+                        Text("YouTube player interface will appear here")
+                            .font(.system(size: 14))
+                            .foregroundColor(.white.opacity(0.6))
+                            .multilineTextAlignment(.center)
+                    }
+                }
+                .padding(.horizontal, 20)
+            
+            Spacer()
+        }
+    }
+}
 
 // MARK: - Queue Item Model
 struct QueueItem: Identifiable {
