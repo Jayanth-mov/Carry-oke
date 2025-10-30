@@ -691,16 +691,22 @@ class QueueManager: NSObject, ObservableObject {
             // Extract file name without extension for title
             let fileName = url.deletingPathExtension().lastPathComponent
             
+            // Copy file to permanent location in Documents directory
+            guard let permanentURL = copyFileToDocuments(from: url, fileName: fileName) else {
+                print("❌ Failed to copy file \(fileName) to permanent location")
+                continue
+            }
+            
             // Get audio duration
-            let asset = AVAsset(url: url)
+            let asset = AVAsset(url: permanentURL)
             let duration = asset.duration.seconds
             
-            // Create a new queue item
+            // Create a new queue item with permanent URL
             let newItem = QueueItem(
                 title: fileName,
                 artist: "Unknown Artist",
                 duration: duration.isNaN ? 0 : duration,
-                fileURL: url
+                fileURL: permanentURL
             )
             
             // Add to queue
@@ -710,6 +716,36 @@ class QueueManager: NSObject, ObservableObject {
         // Save the updated queue
         saveCurrentQueue()
         print("Added \(urls.count) audio files to queue and saved")
+    }
+    
+    private func copyFileToDocuments(from sourceURL: URL, fileName: String) -> URL? {
+        let fileManager = FileManager.default
+        
+        // Get the documents directory
+        guard let documentsDirectory = fileManager.urls(for: .documentDirectory, in: .userDomainMask).first else {
+            print("❌ Could not access documents directory")
+            return nil
+        }
+        
+        // Create a unique filename to avoid conflicts
+        let fileExtension = sourceURL.pathExtension
+        let uniqueFileName = "\(fileName)_\(UUID().uuidString).\(fileExtension)"
+        let destinationURL = documentsDirectory.appendingPathComponent("Audio").appendingPathComponent(uniqueFileName)
+        
+        do {
+            // Create the Audio directory if it doesn't exist
+            let audioDirectory = documentsDirectory.appendingPathComponent("Audio")
+            try fileManager.createDirectory(at: audioDirectory, withIntermediateDirectories: true)
+            
+            // Copy the file to the permanent location
+            try fileManager.copyItem(at: sourceURL, to: destinationURL)
+            
+            print("✅ Successfully copied \(fileName) to permanent location: \(destinationURL.path)")
+            return destinationURL
+        } catch {
+            print("❌ Failed to copy file \(fileName): \(error)")
+            return nil
+        }
     }
     
     func moveQueueItems(from source: IndexSet, to destination: Int) {
@@ -730,6 +766,13 @@ class QueueManager: NSObject, ObservableObject {
     func deleteQueueItems(offsets: IndexSet) {
         let currentSongId = currentSong?.id
         let wasCurrentDeleted = offsets.contains(currentIndex)
+        
+        // Clean up files for deleted items
+        for index in offsets {
+            if index < queueItems.count, let fileURL = queueItems[index].fileURL {
+                cleanupAudioFile(at: fileURL)
+            }
+        }
         
         queueItems.remove(atOffsets: offsets)
         
@@ -755,6 +798,11 @@ class QueueManager: NSObject, ObservableObject {
         if let index = queueItems.firstIndex(where: { $0.id == item.id }) {
             let wasCurrentSong = index == currentIndex
             
+            // Clean up the file if it's in our Audio directory
+            if let fileURL = item.fileURL {
+                cleanupAudioFile(at: fileURL)
+            }
+            
             queueItems.remove(at: index)
             
             if wasCurrentSong {
@@ -773,10 +821,38 @@ class QueueManager: NSObject, ObservableObject {
     }
     
     func clearQueue() {
+        // Clean up all audio files before clearing
+        for item in queueItems {
+            if let fileURL = item.fileURL {
+                cleanupAudioFile(at: fileURL)
+            }
+        }
+        
         queueItems.removeAll()
         userDefaults.removeObject(forKey: queueKey)
         stop()
-        print("🗑️ Queue cleared")
+        print("🗑️ Queue cleared and audio files cleaned up")
+    }
+    
+    private func cleanupAudioFile(at url: URL) {
+        let fileManager = FileManager.default
+        
+        // Only delete files that are in our Audio directory
+        guard let documentsDirectory = fileManager.urls(for: .documentDirectory, in: .userDomainMask).first else {
+            return
+        }
+        
+        let audioDirectory = documentsDirectory.appendingPathComponent("Audio")
+        
+        // Check if the file is in our Audio directory
+        if url.path.starts(with: audioDirectory.path) {
+            do {
+                try fileManager.removeItem(at: url)
+                print("✅ Cleaned up audio file: \(url.lastPathComponent)")
+            } catch {
+                print("⚠️ Could not delete audio file: \(error)")
+            }
+        }
     }
     
     // MARK: - Playback Control Methods
