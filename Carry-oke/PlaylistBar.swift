@@ -8,12 +8,15 @@
 import SwiftUI
 import Combine
 import AVFoundation
+import WebKit
+import UniformTypeIdentifiers
 
 // MARK: - Playlist Bar (Liquid Glass)
 struct PlaylistBar: View {
     @State private var isShowingQueue = false
     @State private var isYouTubePlayer = false
     @ObservedObject var queueManager: QueueManager
+    @ObservedObject var karaokeEngine: KaraokeAudioEngine
     
     var body: some View {
         // Collapsed Playlist Bar
@@ -23,8 +26,8 @@ struct PlaylistBar: View {
             }
             .modifier(GlassEffectModifier(tintColor: Color(hex: "F87060").opacity(0.2), shape: .rect(cornerRadius: 25)))
             .sheet(isPresented: $isShowingQueue) {
-                QueueSheetView(isYouTubePlayer: $isYouTubePlayer, queueManager: queueManager)
-                    .presentationDetents(isYouTubePlayer ? [.fraction(0.5)] : [.large])
+                QueueSheetView(isYouTubePlayer: $isYouTubePlayer, queueManager: queueManager, karaokeEngine: karaokeEngine)
+                    .presentationDetents([isYouTubePlayer ? .fraction(0.5) : .large])
                     .presentationDragIndicator(.visible)
                     .presentationBackgroundInteraction(isYouTubePlayer ? .enabled : .automatic)
             }
@@ -103,6 +106,7 @@ struct QueueSheetView: View {
     @Binding var isYouTubePlayer: Bool
     @State private var showingFilePicker = false
     @ObservedObject var queueManager: QueueManager
+    @ObservedObject var karaokeEngine: KaraokeAudioEngine
     
     var body: some View {
         NavigationView {
@@ -145,8 +149,9 @@ struct QueueSheetView: View {
                     
                     // Content based on player mode
                     if isYouTubePlayer {
-                        // YouTube Player Content
-                        YouTubePlayerPlaceholder()
+                        // YouTube Player Content - fills entire sheet
+                        YouTubePlayerView()
+                            .environmentObject(karaokeEngine)
                     } else {
                         // Queue content (existing)
                         if queueManager.queueItems.isEmpty {
@@ -440,35 +445,129 @@ struct QueueItemRow: View {
 
 
 
-// MARK: - YouTube Player Placeholder
-struct YouTubePlayerPlaceholder: View {
+// MARK: - YouTube Player
+struct YouTubePlayerView: View {
+    @EnvironmentObject var karaokeEngine: KaraokeAudioEngine
+    
     var body: some View {
-        VStack(spacing: 20) {
-            Spacer()
+        VStack(spacing: 0) {
+            // YouTube embed fills the entire content area
+            YouTubeWebView(karaokeEngine: karaokeEngine)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .clipped()
+        }
+    }
+}
+
+// MARK: - YouTube WebView
+struct YouTubeWebView: UIViewRepresentable {
+    let karaokeEngine: KaraokeAudioEngine
+    
+    func makeUIView(context: Context) -> WKWebView {
+        let configuration = WKWebViewConfiguration()
+        
+        // Enable media playback and allow mixing with other audio
+        configuration.allowsInlineMediaPlayback = true
+        configuration.mediaTypesRequiringUserActionForPlayback = []
+        
+        // Add message handler for karaoke coordination
+        let contentController = WKUserContentController()
+        contentController.add(context.coordinator, name: "videoPlaying")
+        configuration.userContentController = contentController
+        
+        let webView = WKWebView(frame: .zero, configuration: configuration)
+        webView.navigationDelegate = context.coordinator
+        
+        // Configure for karaoke compatibility
+        webView.scrollView.isScrollEnabled = true
+        webView.allowsBackForwardNavigationGestures = true
+        
+        // Load YouTube
+        if let url = URL(string: "https://www.youtube.com") {
+            let request = URLRequest(url: url)
+            webView.load(request)
+        }
+        
+        return webView
+    }
+    
+    func updateUIView(_ uiView: WKWebView, context: Context) {
+        // No updates needed for this implementation
+    }
+    
+    func makeCoordinator() -> Coordinator {
+        Coordinator(karaokeEngine: karaokeEngine)
+    }
+    
+    class Coordinator: NSObject, WKNavigationDelegate, WKScriptMessageHandler {
+        private let karaokeEngine: KaraokeAudioEngine
+        
+        init(karaokeEngine: KaraokeAudioEngine) {
+            self.karaokeEngine = karaokeEngine
+            super.init()
+        }
+        
+        func webView(_ webView: WKWebView, didStartProvisionalNavigation navigation: WKNavigation!) {
+            print("YouTube WebView: Started loading")
+        }
+        
+        func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+            print("YouTube WebView: Finished loading")
             
-            // YouTube icon placeholder
-            RoundedRectangle(cornerRadius: 12)
-                .fill(Color.white.opacity(0.1))
-                .frame(height: 200)
-                .overlay {
-                    VStack(spacing: 12) {
-                        Image(systemName: "play.rectangle.fill")
-                            .font(.system(size: 48))
-                            .foregroundColor(.white.opacity(0.4))
-                        
-                        Text("[YouTube Placeholder]")
-                            .font(.system(size: 18, weight: .medium))
-                            .foregroundColor(.white.opacity(0.8))
-                        
-                        Text("YouTube player interface will appear here")
-                            .font(.system(size: 14))
-                            .foregroundColor(.white.opacity(0.6))
-                            .multilineTextAlignment(.center)
+            // Inject JavaScript to ensure audio can mix with karaoke
+            let script = """
+                // Allow audio to play without user interaction for better karaoke experience
+                document.addEventListener('DOMContentLoaded', function() {
+                    console.log('YouTube loaded - ready for karaoke mode');
+                });
+                
+                // Monitor for video playback and maintain karaoke compatibility
+                setInterval(function() {
+                    var videos = document.querySelectorAll('video');
+                    var isPlaying = false;
+                    videos.forEach(function(video) {
+                        if (!video.paused) {
+                            isPlaying = true;
+                        }
+                    });
+                    
+                    if (isPlaying) {
+                        // Notify native code that YouTube is playing
+                        try {
+                            window.webkit.messageHandlers.videoPlaying.postMessage('playing');
+                        } catch(e) {
+                            console.log('Message handler not available:', e);
+                        }
                     }
-                }
-                .padding(.horizontal, 20)
+                }, 1000);
+            """
             
-            Spacer()
+            webView.evaluateJavaScript(script) { result, error in
+                if let error = error {
+                    print("JavaScript injection error: \(error)")
+                } else {
+                    print("YouTube configured for karaoke compatibility")
+                }
+            }
+        }
+        
+        func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
+            print("YouTube WebView: Failed to load - \(error.localizedDescription)")
+        }
+        
+        func webView(_ webView: WKWebView, decidePolicyFor navigationAction: WKNavigationAction, decisionHandler: @escaping (WKNavigationActionPolicy) -> Void) {
+            // Allow all YouTube navigation
+            decisionHandler(.allow)
+        }
+        
+        // Handle messages from JavaScript when YouTube video is playing
+        func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
+            if message.name == "videoPlaying" {
+                print("🎬 YouTube video playing - maintaining karaoke mode")
+                Task { @MainActor in
+                    karaokeEngine.maintainKaraokeWithMixedAudio()
+                }
+            }
         }
     }
 }
@@ -490,8 +589,6 @@ struct QueueItem: Identifiable, Codable {
 }
 
 // MARK: - Document Picker
-import UniformTypeIdentifiers
-
 struct DocumentPicker: UIViewControllerRepresentable {
     let onFilesSelected: ([URL]) -> Void
     
@@ -586,7 +683,12 @@ class QueueManager: NSObject, ObservableObject {
     
     private func setupAudioSession() {
         do {
-            try AVAudioSession.sharedInstance().setCategory(.playback)
+            // Use compatible audio session category that allows mixing with karaoke
+            try AVAudioSession.sharedInstance().setCategory(
+                .playback, 
+                mode: .default, 
+                options: [.mixWithOthers]  // Allow mixing with karaoke mode
+            )
             try AVAudioSession.sharedInstance().setActive(true)
         } catch {
             print("Failed to setup audio session: \(error)")

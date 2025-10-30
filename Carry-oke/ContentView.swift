@@ -42,7 +42,7 @@ struct ContentView: View {
 
                     
                     // Playlist Bar
-                    PlaylistBar(queueManager: queueManager)
+                    PlaylistBar(queueManager: queueManager, karaokeEngine: karaokeEngine)
                         .padding(.bottom, 34) // Account for safe area
                 }
                 .padding(.horizontal, 20)
@@ -403,11 +403,17 @@ class KaraokeAudioEngine: ObservableObject {
     }
     
     private func setupAudioEngine() {
-        // Setup audio session - FORCE external output only, built-in microphone only
+        // Setup audio session - ALLOW mixing with other audio (like YouTube)
         do {
             try audioSession.setCategory(.playAndRecord, 
                                        mode: .default,
-                                       options: [.allowBluetooth, .allowBluetoothA2DP, .allowAirPlay])
+                                       options: [
+                                           .allowBluetooth, 
+                                           .allowBluetoothA2DP, 
+                                           .allowAirPlay,
+                                           .mixWithOthers,  // Allow mixing with YouTube/other apps
+                                           .duckOthers      // Lower other audio when karaoke is active
+                                       ])
             
             // Set preferred sample rate to avoid format issues
             try audioSession.setPreferredSampleRate(44100.0)
@@ -420,7 +426,7 @@ class KaraokeAudioEngine: ObservableObject {
             // Force external output devices only
             try forceExternalOutputOnly()
             
-            print("Karaoke audio session setup - built-in microphone, external speakers only")
+            print("Karaoke audio session setup - built-in microphone, external speakers only, mixing enabled")
         } catch {
             print("Failed to setup karaoke audio session: \(error)")
             return
@@ -597,6 +603,19 @@ class KaraokeAudioEngine: ObservableObject {
         }
         
         print("🎯 DEBUG: toggleKaraoke() completed - Final state: isRecording=\(isRecording), audioEngine.isRunning=\(audioEngine.isRunning)")
+    }
+    
+    // Method to keep karaoke running when other audio (like YouTube) plays
+    func maintainKaraokeWithMixedAudio() {
+        guard isRecording && audioEngine.isRunning else { return }
+        
+        // Ensure our karaoke audio session remains active and mixing with YouTube
+        do {
+            try audioSession.setActive(true)
+            print("🎤 Karaoke mode maintained while YouTube audio plays - microphone will mix over video audio")
+        } catch {
+            print("❌ Failed to maintain karaoke session: \(error)")
+        }
     }
     
     private func startKaraoke() throws {
