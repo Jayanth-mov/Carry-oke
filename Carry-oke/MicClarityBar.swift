@@ -90,7 +90,7 @@ struct ExpandedMicClarityView: View {
                 .padding(.horizontal, 20)
                 .padding(.bottom, 20)
         }
-        .frame(maxHeight: 275) // Limit the maximum height
+        .frame(maxHeight: 275) // Increased height to accommodate music volume slider
     }
 }
 
@@ -128,6 +128,34 @@ struct AudioControlsView: View {
     var body: some View {
         VStack(spacing: 20) {
             VStack(spacing: 16) {
+                // Music Volume Slider
+                VStack(spacing: 8) {
+                    HStack {
+                        Text("Music Volume")
+                            .font(.system(size: 14, weight: .medium))
+                            .foregroundColor(.white.opacity(0.9))
+                        Spacer()
+                    }
+                    
+                    HStack {
+                        Text("Muted")
+                            .font(.system(size: 12))
+                            .foregroundColor(.white.opacity(0.6))
+                        
+                        Spacer()
+                        
+                        Text("Loud")
+                            .font(.system(size: 12))
+                            .foregroundColor(.white.opacity(0.6))
+                    }
+                    
+                    Slider(value: Binding(
+                        get: { QueueManager.shared.musicVolume },
+                        set: { QueueManager.shared.musicVolume = $0 }
+                    ), in: 0...1)
+                        .accentColor(.white)
+                }
+                
                 // Microphone Volume Slider
                 VStack(spacing: 8) {
                     HStack {

@@ -12,6 +12,7 @@ import Combine
 struct ContentView: View {
     @State private var showingSettings = false
     @StateObject private var karaokeEngine = KaraokeAudioEngine()
+    @ObservedObject private var queueManager = QueueManager.shared
     
     var body: some View {
         GeometryReader { geometry in
@@ -35,9 +36,13 @@ struct ContentView: View {
                     MicrophoneButton(karaokeEngine: karaokeEngine, showingSettings: $showingSettings)
                     
                     Spacer()
+                    Spacer()
+                    Spacer()
+                    Spacer()
+
                     
                     // Playlist Bar
-                    PlaylistBar()
+                    PlaylistBar(queueManager: queueManager)
                         .padding(.bottom, 34) // Account for safe area
                 }
                 .padding(.horizontal, 20)
