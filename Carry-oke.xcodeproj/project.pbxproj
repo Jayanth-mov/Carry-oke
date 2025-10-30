@@ -6,6 +6,10 @@
 	objectVersion = 77;
 	objects = {
 
+/* Begin PBXBuildFile section */
+		5E76E4452EB31EBA005CAB43 /* tmplow_latency_audio_example.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5E76E4442EB31EBA005CAB43 /* tmplow_latency_audio_example.swift */; };
+/* End PBXBuildFile section */
+
 /* Begin PBXContainerItemProxy section */
 		5E29D06E2EAECF0400A54CA5 /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
@@ -27,6 +31,7 @@
 		5E29D0602EAECF0300A54CA5 /* Carry-oke.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "Carry-oke.app"; sourceTree = BUILT_PRODUCTS_DIR; };
 		5E29D06D2EAECF0400A54CA5 /* Carry-okeTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = "Carry-okeTests.xctest"; sourceTree = BUILT_PRODUCTS_DIR; };
 		5E29D0772EAECF0400A54CA5 /* Carry-okeUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = "Carry-okeUITests.xctest"; sourceTree = BUILT_PRODUCTS_DIR; };
+		5E76E4442EB31EBA005CAB43 /* tmplow_latency_audio_example.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = tmplow_latency_audio_example.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
@@ -79,6 +84,7 @@
 				5E29D0702EAECF0400A54CA5 /* Carry-okeTests */,
 				5E29D07A2EAECF0400A54CA5 /* Carry-okeUITests */,
 				5E29D0612EAECF0300A54CA5 /* Products */,
+				5E76E4442EB31EBA005CAB43 /* tmplow_latency_audio_example.swift */,
 			);
 			sourceTree = "<group>";
 		};
@@ -236,6 +242,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				5E76E4452EB31EBA005CAB43 /* tmplow_latency_audio_example.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

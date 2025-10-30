@@ -149,7 +149,6 @@ struct MicrophoneButton: View {
                 Image(systemName: karaokeEngine.isRecording ? "mic.fill" : "mic.fill")
                     .font(.system(size: 60, weight: .medium))
                     .foregroundColor(karaokeEngine.isRecording ? .red : .white)
-                    .rotationEffect(.degrees(180))
                 
                 if !karaokeEngine.hasExternalOutput && !karaokeEngine.isRecording {
                     Text("Connect a\nBluetooth Speaker")
@@ -641,7 +640,15 @@ class KaraokeAudioEngine: ObservableObject {
             try audioEngine.start()
             print("✅ DEBUG: Audio engine started successfully - isRunning=\(audioEngine.isRunning)")
             
+            // Verify that the audio engine is actually running before setting isRecording
+            guard audioEngine.isRunning else {
+                print("❌ DEBUG: Audio engine failed to start (isRunning=false after start)")
+                throw NSError(domain: "KaraokeError", code: 3, userInfo: [NSLocalizedDescriptionKey: "Audio engine failed to start"])
+            }
+            
+            // Only set isRecording to true AFTER confirming the audio engine is running
             isRecording = true
+            print("✅ DEBUG: isRecording set to true after confirming audio engine is running")
             
             // Apply audio effects
             applyMicrophoneVolume()
@@ -651,14 +658,24 @@ class KaraokeAudioEngine: ObservableObject {
             
         } catch {
             print("❌ DEBUG: Failed to start karaoke: \(error)")
-            print("🔄 DEBUG: Resetting isRecording to false")
-            isRecording = false
             print("🧹 DEBUG: Cleaning up after error...")
+            
+            // Ensure isRecording is false on any error
+            isRecording = false
+            print("🔄 DEBUG: isRecording reset to false due to error")
             
             // Clean up on error
             if audioEngine.isRunning {
                 print("🛑 DEBUG: Stopping audio engine due to error...")
                 audioEngine.stop()
+            }
+            
+            // Also try to deactivate the audio session
+            do {
+                try audioSession.setActive(false, options: .notifyOthersOnDeactivation)
+                print("📱 DEBUG: Audio session deactivated after error")
+            } catch {
+                print("❌ DEBUG: Failed to deactivate audio session after error: \(error)")
             }
             
             throw error
