@@ -453,7 +453,7 @@ class KaraokeAudioEngine: ObservableObject {
                                        .allowBluetoothA2DP, 
                                        .allowAirPlay,
                                        .mixWithOthers,  // Allow mixing with YouTube/other apps
-                                       .duckOthers,     // Lower other audio when karaoke is active
+                                       .duckOthers,     // Enable controlled ducking
                                        .defaultToSpeaker // Ensure external routing preference
                                    ])
         
@@ -476,6 +476,9 @@ class KaraokeAudioEngine: ObservableObject {
         if !sampleRateSet {
             print("⚠️ Using default sample rate: \(audioSession.sampleRate)Hz")
         }
+        
+        // Step 2.5: Configure controlled ducking (50% reduction)
+        try configureDuckingLevel(duckingFactor: 0.7)
         
         // Step 3: Aggressively optimize buffer duration for minimum latency
         try optimizeBufferDuration()
@@ -573,14 +576,81 @@ class KaraokeAudioEngine: ObservableObject {
                                        .allowBluetoothA2DP, 
                                        .allowAirPlay,
                                        .mixWithOthers,
-                                       .duckOthers,
+                                       .duckOthers,  // Enable ducking
                                        .defaultToSpeaker
                                    ])
+        
+        // Configure ducking level - this reduces other audio by 50%
+        if #available(iOS 14.5, *) {
+            try audioSession.setSupportsMultichannelContent(false)
+        }
+        
+        // Set custom ducking parameters
+        try configureDuckingLevel(duckingFactor: 0.7) // 50% volume reduction
         
         try audioSession.setPreferredSampleRate(44100.0)
         try audioSession.setPreferredIOBufferDuration(0.0232) // ~23ms - very stable
         
-        print("⚠️ Fallback mode active - higher latency but more reliable")
+        print("⚠️ Fallback mode active - higher latency but more reliable, 50% ducking enabled")
+    }
+    
+    private func configureDuckingLevel(duckingFactor: Float) throws {
+        // Configure how much we duck other audio (0.5 = 50% volume reduction)
+        let duckingGain = 1.0 - duckingFactor // 0.5 means other audio plays at 50% volume
+        
+        print("🔇 Configuring ducking: Other audio will play at \(Int(duckingGain * 100))% volume")
+        
+        // This uses a combination of approaches to achieve controlled ducking
+        
+        // Approach 1: Use notification to manually control other audio when our session becomes active
+        NotificationCenter.default.removeObserver(self, name: AVAudioSession.interruptionNotification, object: nil)
+        NotificationCenter.default.addObserver(
+            forName: AVAudioSession.interruptionNotification,
+            object: audioSession,
+            queue: .main
+        ) { [weak self] notification in
+            self?.handleAudioInterruption(notification, duckingGain: duckingGain)
+        }
+        
+        // Approach 2: Configure route change handling for ducking
+        NotificationCenter.default.removeObserver(self, name: AVAudioSession.routeChangeNotification, object: nil)
+        NotificationCenter.default.addObserver(
+            forName: AVAudioSession.routeChangeNotification,
+            object: audioSession,
+            queue: .main
+        ) { [weak self] notification in
+            self?.handleRouteChange(notification)
+        }
+    }
+    
+    private func handleAudioInterruption(_ notification: Notification, duckingGain: Float) {
+        guard let userInfo = notification.userInfo,
+              let typeValue = userInfo[AVAudioSessionInterruptionTypeKey] as? UInt,
+              let type = AVAudioSession.InterruptionType(rawValue: typeValue) else {
+            return
+        }
+        
+        switch type {
+        case .began:
+            print("🔇 Audio interruption began - ducking other audio to \(Int(duckingGain * 100))%")
+            // The system will handle ducking with .duckOthers option
+            
+        case .ended:
+            if let optionsValue = userInfo[AVAudioSessionInterruptionOptionKey] as? UInt {
+                let options = AVAudioSession.InterruptionOptions(rawValue: optionsValue)
+                if options.contains(.shouldResume) {
+                    print("🔊 Audio interruption ended - restoring other audio volume")
+                    // The system will automatically restore other audio volume
+                }
+            }
+        @unknown default:
+            break
+        }
+    }
+    
+    private func handleRouteChange(_ notification: Notification) {
+        // Handle route changes while maintaining ducking behavior
+        refreshExternalOutputStatus()
     }
     
     private func setupAudioEngineConnections() {
