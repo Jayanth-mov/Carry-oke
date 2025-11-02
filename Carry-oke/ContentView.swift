@@ -452,8 +452,7 @@ class KaraokeAudioEngine: ObservableObject {
                                        .allowBluetooth, 
                                        .allowBluetoothA2DP, 
                                        .allowAirPlay,
-                                       .mixWithOthers,  // Allow mixing with YouTube/other apps
-                                       .duckOthers,     // Enable controlled ducking
+                                       .mixWithOthers,  // Allow mixing with YouTube/other apps - NO DUCKING
                                        .defaultToSpeaker // Ensure external routing preference
                                    ])
         
@@ -477,9 +476,6 @@ class KaraokeAudioEngine: ObservableObject {
             print("⚠️ Using default sample rate: \(audioSession.sampleRate)Hz")
         }
         
-        // Step 2.5: Configure controlled ducking (50% reduction)
-        try configureDuckingLevel(duckingFactor: 0.7)
-        
         // Step 3: Aggressively optimize buffer duration for minimum latency
         try optimizeBufferDuration()
         
@@ -488,7 +484,7 @@ class KaraokeAudioEngine: ObservableObject {
             try audioSession.setAllowHapticsAndSystemSoundsDuringRecording(false)
         }
         
-        print("🎯 Ultra-low latency configuration complete")
+        print("🎯 Ultra-low latency configuration complete - NO AUDIO DUCKING")
     }
     
     private func optimizeBufferDuration() throws {
@@ -575,82 +571,34 @@ class KaraokeAudioEngine: ObservableObject {
                                        .allowBluetooth, 
                                        .allowBluetoothA2DP, 
                                        .allowAirPlay,
-                                       .mixWithOthers,
-                                       .duckOthers,  // Enable ducking
+                                       .mixWithOthers,  // Allow mixing - NO DUCKING
                                        .defaultToSpeaker
                                    ])
         
-        // Configure ducking level - this reduces other audio by 50%
+        // Configure for multi-channel content support if available
         if #available(iOS 14.5, *) {
             try audioSession.setSupportsMultichannelContent(false)
         }
         
-        // Set custom ducking parameters
-        try configureDuckingLevel(duckingFactor: 0.7) // 50% volume reduction
-        
         try audioSession.setPreferredSampleRate(44100.0)
         try audioSession.setPreferredIOBufferDuration(0.0232) // ~23ms - very stable
         
-        print("⚠️ Fallback mode active - higher latency but more reliable, 50% ducking enabled")
-    }
-    
-    private func configureDuckingLevel(duckingFactor: Float) throws {
-        // Configure how much we duck other audio (0.5 = 50% volume reduction)
-        let duckingGain = 1.0 - duckingFactor // 0.5 means other audio plays at 50% volume
-        
-        print("🔇 Configuring ducking: Other audio will play at \(Int(duckingGain * 100))% volume")
-        
-        // This uses a combination of approaches to achieve controlled ducking
-        
-        // Approach 1: Use notification to manually control other audio when our session becomes active
-        NotificationCenter.default.removeObserver(self, name: AVAudioSession.interruptionNotification, object: nil)
-        NotificationCenter.default.addObserver(
-            forName: AVAudioSession.interruptionNotification,
-            object: audioSession,
-            queue: .main
-        ) { [weak self] notification in
-            self?.handleAudioInterruption(notification, duckingGain: duckingGain)
-        }
-        
-        // Approach 2: Configure route change handling for ducking
-        NotificationCenter.default.removeObserver(self, name: AVAudioSession.routeChangeNotification, object: nil)
-        NotificationCenter.default.addObserver(
-            forName: AVAudioSession.routeChangeNotification,
-            object: audioSession,
-            queue: .main
-        ) { [weak self] notification in
-            self?.handleRouteChange(notification)
-        }
-    }
-    
-    private func handleAudioInterruption(_ notification: Notification, duckingGain: Float) {
-        guard let userInfo = notification.userInfo,
-              let typeValue = userInfo[AVAudioSessionInterruptionTypeKey] as? UInt,
-              let type = AVAudioSession.InterruptionType(rawValue: typeValue) else {
-            return
-        }
-        
-        switch type {
-        case .began:
-            print("🔇 Audio interruption began - ducking other audio to \(Int(duckingGain * 100))%")
-            // The system will handle ducking with .duckOthers option
-            
-        case .ended:
-            if let optionsValue = userInfo[AVAudioSessionInterruptionOptionKey] as? UInt {
-                let options = AVAudioSession.InterruptionOptions(rawValue: optionsValue)
-                if options.contains(.shouldResume) {
-                    print("🔊 Audio interruption ended - restoring other audio volume")
-                    // The system will automatically restore other audio volume
-                }
-            }
-        @unknown default:
-            break
-        }
+        print("⚠️ Fallback mode active - higher latency but more reliable, NO ducking enabled")
     }
     
     private func handleRouteChange(_ notification: Notification) {
-        // Handle route changes while maintaining ducking behavior
+        // Handle route changes while maintaining audio mixing behavior
         refreshExternalOutputStatus()
+        
+        // Reapply bottom microphone preference when route changes
+        Task { @MainActor in
+            do {
+                try forceBuiltInMicrophoneOnly()
+                print("🔄 Reapplied bottom microphone preference after route change")
+            } catch {
+                print("⚠️ Failed to reapply microphone preference after route change: \(error)")
+            }
+        }
     }
     
     private func setupAudioEngineConnections() {
@@ -761,8 +709,12 @@ class KaraokeAudioEngine: ObservableObject {
         
         if let builtInMic = builtInMic {
             try audioSession.setPreferredInput(builtInMic)
+            
+            // Force selection of bottom microphone specifically
+            try selectBottomMicrophone(for: builtInMic)
+            
             isMicrophoneInitialized = true
-            print("Successfully set preferred input to built-in microphone: \(builtInMic.portName)")
+            print("✅ Successfully set preferred input to built-in microphone: \(builtInMic.portName)")
         } else {
             print("Warning: Built-in microphone not found in available inputs")
             // Still try to set the first available input as fallback
@@ -773,6 +725,49 @@ class KaraokeAudioEngine: ObservableObject {
             } else {
                 isMicrophoneInitialized = false
                 print("Error: No input devices available")
+            }
+        }
+    }
+    
+    private func selectBottomMicrophone(for input: AVAudioSessionPortDescription) throws {
+        // Check if this input has multiple data sources (microphones)
+        guard let dataSources = input.dataSources, !dataSources.isEmpty else {
+            print("📱 No data sources available for microphone selection")
+            return
+        }
+        
+        print("🎙️ Available microphone data sources:")
+        for dataSource in dataSources {
+            print("   - \(dataSource.dataSourceName) (ID: \(dataSource.dataSourceID), Orientation: \(dataSource.orientation?.rawValue ?? "unknown"))")
+        }
+        
+        // Try to find bottom microphone by various identifiers
+        let bottomMic = dataSources.first { dataSource in
+            let name = dataSource.dataSourceName.lowercased()
+            let id = dataSource.dataSourceID.description.lowercased()
+            
+            // Check for bottom orientation first (most reliable)
+            if let orientation = dataSource.orientation, orientation == .bottom {
+                return true
+            }
+            
+            // Check for common bottom microphone identifiers
+            return name.contains("bottom") || 
+                   name.contains("primary") ||
+                   name.contains("main") ||
+                   id.contains("bottom") ||
+                   id.contains("primary") ||
+                   id.contains("main")
+        }
+        
+        if let bottomMic = bottomMic {
+            try input.setPreferredDataSource(bottomMic)
+            print("🎯 Successfully selected bottom microphone: \(bottomMic.dataSourceName)")
+        } else {
+            // If no bottom mic found, select first available (fallback)
+            if let firstDataSource = dataSources.first {
+                try input.setPreferredDataSource(firstDataSource)
+                print("⚠️ Bottom microphone not found, using: \(firstDataSource.dataSourceName)")
             }
         }
     }
@@ -867,10 +862,10 @@ class KaraokeAudioEngine: ObservableObject {
     func maintainKaraokeWithMixedAudio() {
         guard isRecording && audioEngine.isRunning else { return }
         
-        // Ensure our karaoke audio session remains active and mixing with YouTube
+        // Ensure our karaoke audio session remains active and mixing with other audio at full volume
         do {
             try audioSession.setActive(true)
-            print("🎤 Karaoke mode maintained while YouTube audio plays - microphone will mix over video audio")
+            print("🎤 Karaoke mode maintained - microphone mixes with other audio at FULL volume (no ducking)")
         } catch {
             print("❌ Failed to maintain karaoke session: \(error)")
         }
@@ -939,7 +934,7 @@ class KaraokeAudioEngine: ObservableObject {
             // Log latency metrics to monitor our optimization
             logLatencyMetrics()
             
-            print("✅ DEBUG: Karaoke mode started - built-in microphone, external speakers only")
+            print("✅ DEBUG: Karaoke mode started - built-in microphone, external speakers, NO DUCKING")
             
         } catch {
             print("❌ DEBUG: Failed to start karaoke: \(error)")
